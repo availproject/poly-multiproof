@@ -4,40 +4,58 @@ use ark_poly::{
     univariate::{DenseOrSparsePolynomial, DensePolynomial},
     DenseUVPolynomial,
 };
+use ark_serialize::{CanonicalSerialize, Compress, SerializationError};
 use ark_std::ops::{Add, Mul};
 use ark_std::rand::RngCore;
 #[cfg(test)]
-use ark_std::test_rng;
+use rand::thread_rng as test_rng;
+use merlin::Transcript;
 
 pub mod method1;
 pub mod method2;
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(thiserror::Error, Debug, Eq, PartialEq)]
 pub enum Error {
+    #[error("Polynomial given is too large")]
     PolynomialTooLarge {
         n_coeffs: usize,
         expected_max: usize,
     },
+    #[error("A divisor was zero")]
     DivisorIsZero,
+    #[error("Expected polynomials, none were given")]
     NoPolynomialsGiven,
+    #[error("Given evaluations were the incorrect size")]
+    EvalsIncorrectSize {
+        poly: usize,
+        n: usize,
+        expected: usize,
+    },
+    #[error("Serialization error")]
+    SerializationError,
+}
+
+impl From<SerializationError> for Error {
+    fn from(_: SerializationError) -> Self {
+        Self::SerializationError
+    }
 }
 
 pub trait MultiOpenKzg<E: Pairing> {
-    type Setup;
     type Commitment;
     type Proof;
-    fn new(max_degree: usize, max_pts: usize, rng: &mut impl RngCore) -> Self::Setup;
-    fn commit(
-        setup: &Self::Setup,
-        poly: impl AsRef<[E::ScalarField]>,
-    ) -> Result<Self::Commitment, Error>;
+    fn new(max_degree: usize, max_pts: usize, rng: &mut impl RngCore) -> Self;
+    fn commit(&self, poly: impl AsRef<[E::ScalarField]>) -> Result<Self::Commitment, Error>;
     fn open(
         &self,
+        transcript: &mut Transcript,
         polys: &[impl AsRef<[E::ScalarField]>],
+        evals: &[impl AsRef<[E::ScalarField]>],
         points: &[E::ScalarField],
     ) -> Result<Self::Proof, Error>;
     fn verify(
         &self,
+        transcript: &mut Transcript,
         commits: &[Self::Commitment],
         pts: &[E::ScalarField],
         evals: &[impl AsRef<[E::ScalarField]>],
@@ -185,4 +203,47 @@ pub(crate) fn lagrange_interp<F: FftField>(
     let inverses = lagrange_poly_inverses(points);
     let polys = gen_lagrange_polynomials(points);
     do_lagrange_interpolation(evals, points, &inverses, &polys)
+}
+pub(crate) fn get_field_size<F: Field + CanonicalSerialize>() -> usize {
+    F::zero().serialized_size(Compress::Yes)
+}
+
+pub(crate) fn transcribe_points_and_evals<F: Field + CanonicalSerialize>(
+    transcript: &mut Transcript,
+    points: &[F],
+    evals: &[impl AsRef<[F]>],
+    field_size_bytes: usize,
+) -> Result<(), Error> {
+    let n_points = points.len();
+    let mut eval_bytes = vec![0u8; field_size_bytes * n_points * evals.len()];
+    for (i, e) in evals.iter().enumerate() {
+        if e.as_ref().len() != n_points {
+            return Err(Error::EvalsIncorrectSize {
+                poly: i,
+                n: e.as_ref().len(),
+                expected: n_points,
+            });
+        }
+        for (j, p) in e.as_ref().iter().enumerate() {
+            let start = (i * n_points + j) * field_size_bytes;
+            p.serialize_compressed(&mut eval_bytes[start..start + field_size_bytes])?;
+        }
+    }
+    transcript.append_message(b"open evals", &eval_bytes);
+    let mut point_bytes = vec![0u8; field_size_bytes * n_points];
+    for (i, p) in points.iter().enumerate() {
+        p.serialize_compressed(&mut point_bytes[i * field_size_bytes..(i + 1) * field_size_bytes])?;
+    }
+    transcript.append_message(b"open points", &point_bytes);
+    Ok(())
+}
+
+pub(crate) fn get_challenge<F: PrimeField>(
+    transcript: &mut Transcript,
+    label: &'static[u8],
+    field_size_bytes: usize,
+) -> F {
+    let mut challenge_bytes = vec![0u8; field_size_bytes];
+    transcript.challenge_bytes(label, &mut challenge_bytes);
+    F::from_be_bytes_mod_order(&challenge_bytes)
 }

@@ -12,11 +12,13 @@ ark-ec = "0.4.0-alpha.7"
 ark-ff = "0.4.0-alpha.7"
 ark-poly = "0.4.0-alpha.7"
 ark-serialize = "0.4.0-alpha.7"
+merlin = "3"
 thiserror = "1"
 
 [dev-dependencies]
 ark-bls12-381 = "0.4.0-alpha.2"
 criterion = "0.4"
+rand = { version = "*", features = ["getrandom", "std"] }
 
 [features]
 asm = ["ark-ff/asm"]

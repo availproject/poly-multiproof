@@ -1,9 +1,12 @@
 use ark_poly::univariate::DensePolynomial;
 use ark_std::UniformRand;
+use merlin::Transcript;
 use std::usize;
 
 use ark_ec::{pairing::Pairing, CurveGroup};
 use ark_std::rand::RngCore;
+
+use crate::{get_challenge, get_field_size, transcribe_points_and_evals, MultiOpenKzg};
 
 use super::{
     gen_curve_powers, gen_powers, lagrange_interp, linear_combination, poly_div_q_r,
@@ -20,8 +23,11 @@ pub struct Commitment<E: Pairing>(E::G1Affine);
 #[derive(Debug)]
 pub struct Proof<E: Pairing>(E::G1Affine);
 
-impl<E: Pairing> Setup<E> {
-    pub fn new(max_degree: usize, max_pts: usize, rng: &mut impl RngCore) -> Setup<E> {
+impl<E: Pairing> MultiOpenKzg<E> for Setup<E> {
+    type Commitment = Commitment<E>;
+    type Proof = Proof<E>;
+
+    fn new(max_degree: usize, max_pts: usize, rng: &mut impl RngCore) -> Setup<E> {
         let num_scalars = max_degree + 1;
 
         let x = E::ScalarField::rand(rng);
@@ -36,42 +42,60 @@ impl<E: Pairing> Setup<E> {
         }
     }
 
-    pub fn commit(&self, poly: impl AsRef<[E::ScalarField]>) -> Result<Commitment<E>, Error> {
+    fn commit(&self, poly: impl AsRef<[E::ScalarField]>) -> Result<Commitment<E>, Error> {
         let res = super::curve_msm::<E::G1>(&self.powers_of_g1, poly.as_ref())?;
         Ok(Commitment(res.into_affine()))
     }
 
-    pub fn open(
+    fn open(
         &self,
+        transcript: &mut Transcript,
+        evals: &[impl AsRef<[E::ScalarField]>],
         polys: &[impl AsRef<[E::ScalarField]>],
         points: &[E::ScalarField],
-        challenge: E::ScalarField,
     ) -> Result<Proof<E>, Error> {
-        let gammas = gen_powers::<E::ScalarField>(challenge, self.powers_of_g1.len());
+        // Commit the evals and the points to the transcript
+        let field_size_bytes = get_field_size::<E::ScalarField>();
+        transcribe_points_and_evals(transcript, points, evals, field_size_bytes)?;
+
+        // Read the challenge
+        let gamma = get_challenge::<E::ScalarField>(transcript, b"open gamma", field_size_bytes);
+        // Make the gamma powers
+        let gammas = gen_powers::<E::ScalarField>(gamma, self.powers_of_g1.len());
+        // Take a linear combo of gammas with the polynomials
         let fsum = linear_combination::<E::ScalarField>(polys, &gammas)
             .ok_or(Error::NoPolynomialsGiven)?;
 
+        // Compute Z_s
         let z_s = vanishing_polynomial(points.as_ref());
+        // Polynomial divide, the remained would contain the gamma * ri_s,
+        // The result is the correct quotient
         let (q, _) = poly_div_q_r(DensePolynomial { coeffs: fsum }.into(), z_s.into())?;
-        Ok(Proof(self.commit(q)?.0))
+        // Open to the resulting polynomial
+        Ok(Proof(
+            super::curve_msm::<E::G1>(&self.powers_of_g1, &q)?.into_affine(),
+        ))
     }
 
-    pub fn verify(
+    fn verify(
         &self,
+        transcript: &mut Transcript,
         commits: &[Commitment<E>],
-        pts: &[E::ScalarField],
+        points: &[E::ScalarField],
         evals: &[impl AsRef<[E::ScalarField]>],
         proof: &Proof<E>,
-        challenge: E::ScalarField,
     ) -> Result<bool, Error> {
-        let zeros = vanishing_polynomial(pts);
+        let zeros = vanishing_polynomial(points);
         let zeros = super::curve_msm::<E::G2>(&self.powers_of_g2, &zeros)?;
 
         // Get the r_i polynomials with lagrange interp. These could be precomputed.
-        let ri_s = lagrange_interp(evals, pts);
+        let ri_s = lagrange_interp(evals, points);
 
+        let field_size_bytes = get_field_size::<E::ScalarField>();
+        transcribe_points_and_evals(transcript, points, evals, field_size_bytes)?;
+        let gamma = get_challenge(transcript, b"open gamma", field_size_bytes);
         // Aggregate the r_is and then do a single msm of just the ri's and gammas
-        let gammas = gen_powers(challenge, evals.len());
+        let gammas = gen_powers(gamma, evals.len());
         let gamma_ris =
             linear_combination(&ri_s.iter().map(|i| &i.coeffs).collect::<Vec<_>>(), &gammas)
                 .ok_or(Error::NoPolynomialsGiven)?;
@@ -90,9 +114,12 @@ impl<E: Pairing> Setup<E> {
 #[cfg(test)]
 mod tests {
     use super::Setup;
+    use crate::test_rng;
+    use crate::MultiOpenKzg;
     use ark_bls12_381::{Bls12_381, Fr};
     use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial, Polynomial};
-    use ark_std::{test_rng, UniformRand};
+    use ark_std::UniformRand;
+    use merlin::Transcript;
 
     #[test]
     fn test_basic_open_works() {
@@ -112,11 +139,14 @@ mod tests {
             .iter()
             .map(|p| s.commit(p).expect("Commit failed"))
             .collect::<Vec<_>>();
-        let challenge = Fr::rand(&mut test_rng());
-        let open = s.open(&coeffs, &points, challenge).expect("Open failed");
+        let mut transcript = Transcript::new(b"testing");
+        let open = s
+            .open(&mut transcript, &evals, &coeffs, &points)
+            .expect("Open failed");
+        let mut transcript = Transcript::new(b"testing");
         assert_eq!(
             Ok(true),
-            s.verify(&commits, &points, &evals, &open, challenge)
+            s.verify(&mut transcript, &commits, &points, &evals, &open)
         );
     }
 }
