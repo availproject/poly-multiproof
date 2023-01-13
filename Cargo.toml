@@ -1,0 +1,28 @@
+[package]
+name = "kzg-multiproof"
+authors = ["William Arnold (willarnold@berkeley.edu)"]
+version = "0.0.1"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+ark-std = "0.4.0-alpha"
+ark-ec = "0.4.0-alpha.7"
+ark-ff = "0.4.0-alpha.7"
+ark-poly = "0.4.0-alpha.7"
+ark-serialize = "0.4.0-alpha.7"
+thiserror = "1"
+
+[dev-dependencies]
+ark-bls12-381 = "0.4.0-alpha.2"
+criterion = "0.4"
+
+[features]
+asm = ["ark-ff/asm"]
+print-trace = ["ark-std/print-trace"]
+
+[[bench]]
+name = "bench"
+harness = false
+
