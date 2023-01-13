@@ -23,6 +23,7 @@ rand = { version = "*", features = ["getrandom", "std"] }
 [features]
 asm = ["ark-ff/asm"]
 print-trace = ["ark-std/print-trace"]
+debug-transcript = ["merlin/debug-transcript"]
 
 [[bench]]
 name = "bench"

@@ -7,9 +7,9 @@ use ark_poly::{
 use ark_serialize::{CanonicalSerialize, Compress, SerializationError};
 use ark_std::ops::{Add, Mul};
 use ark_std::rand::RngCore;
+use merlin::Transcript;
 #[cfg(test)]
 use rand::thread_rng as test_rng;
-use merlin::Transcript;
 
 pub mod method1;
 pub mod method2;
@@ -57,7 +57,7 @@ pub trait MultiOpenKzg<E: Pairing> {
         &self,
         transcript: &mut Transcript,
         commits: &[Self::Commitment],
-        pts: &[E::ScalarField],
+        points: &[E::ScalarField],
         evals: &[impl AsRef<[E::ScalarField]>],
         proof: &Self::Proof,
     ) -> Result<bool, Error>;
@@ -208,7 +208,7 @@ pub(crate) fn get_field_size<F: Field + CanonicalSerialize>() -> usize {
     F::zero().serialized_size(Compress::Yes)
 }
 
-pub(crate) fn transcribe_points_and_evals<F: Field + CanonicalSerialize>(
+pub(crate) fn transcribe_points_and_evals<F: CanonicalSerialize>(
     transcript: &mut Transcript,
     points: &[F],
     evals: &[impl AsRef<[F]>],
@@ -238,9 +238,21 @@ pub(crate) fn transcribe_points_and_evals<F: Field + CanonicalSerialize>(
     Ok(())
 }
 
+pub(crate) fn transcribe_generic<F: CanonicalSerialize>(
+    transcript: &mut Transcript,
+    label: &'static [u8],
+    f: &F,
+) -> Result<(), Error> {
+    let elt_size = f.serialized_size(Compress::Yes);
+    let mut buf = vec![0u8; elt_size];
+    f.serialize_compressed(&mut buf)?;
+    transcript.append_message(label, &buf);
+    Ok(())
+}
+
 pub(crate) fn get_challenge<F: PrimeField>(
     transcript: &mut Transcript,
-    label: &'static[u8],
+    label: &'static [u8],
     field_size_bytes: usize,
 ) -> F {
     let mut challenge_bytes = vec![0u8; field_size_bytes];
