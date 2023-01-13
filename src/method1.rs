@@ -13,9 +13,10 @@ use super::{
     vanishing_polynomial, Error,
 };
 
+#[derive(Clone, Debug)]
 pub struct Setup<E: Pairing> {
-    powers_of_g1: Vec<E::G1Affine>,
-    powers_of_g2: Vec<E::G2Affine>,
+    pub(crate) powers_of_g1: Vec<E::G1Affine>,
+    pub(crate) powers_of_g2: Vec<E::G2Affine>,
 }
 
 #[derive(Debug)]

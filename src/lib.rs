@@ -33,6 +33,8 @@ pub enum Error {
     },
     #[error("Serialization error")]
     SerializationError,
+    #[error("Not enough g2 powers")]
+    NotEnoughG2Powers,
 }
 
 impl From<SerializationError> for Error {
@@ -49,8 +51,8 @@ pub trait MultiOpenKzg<E: Pairing> {
     fn open(
         &self,
         transcript: &mut Transcript,
-        polys: &[impl AsRef<[E::ScalarField]>],
         evals: &[impl AsRef<[E::ScalarField]>],
+        polys: &[impl AsRef<[E::ScalarField]>],
         points: &[E::ScalarField],
     ) -> Result<Self::Proof, Error>;
     fn verify(

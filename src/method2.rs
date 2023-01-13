@@ -10,7 +10,8 @@ use ark_ec::{pairing::Pairing, AffineRepr, CurveGroup};
 use ark_std::rand::RngCore;
 
 use crate::{
-    get_challenge, get_field_size, transcribe_generic, transcribe_points_and_evals, MultiOpenKzg,
+    get_challenge, get_field_size, method1, transcribe_generic, transcribe_points_and_evals,
+    MultiOpenKzg,
 };
 
 use super::{
@@ -18,15 +19,31 @@ use super::{
     vanishing_polynomial, Error,
 };
 
+#[derive(Clone, Debug)]
 pub struct Setup<E: Pairing> {
     powers_of_g1: Vec<E::G1Affine>,
     g2: E::G2Affine,
     g2x: E::G2Affine,
 }
 
-#[derive(Debug)]
+impl<E: Pairing> TryFrom<method1::Setup<E>> for Setup<E> {
+    type Error = Error;
+
+    fn try_from(value: method1::Setup<E>) -> Result<Self, Self::Error> {
+        if value.powers_of_g2.len() < 2 {
+            return Err(Error::NotEnoughG2Powers);
+        }
+        Ok(Self {
+            powers_of_g1: value.powers_of_g1,
+            g2: value.powers_of_g2[0],
+            g2x: value.powers_of_g2[1],
+        })
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct Commitment<E: Pairing>(E::G1Affine);
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct Proof<E: Pairing>(E::G1Affine, E::G1Affine);
 
 impl<E: Pairing> MultiOpenKzg<E> for Setup<E> {
@@ -58,8 +75,8 @@ impl<E: Pairing> MultiOpenKzg<E> for Setup<E> {
     fn open(
         &self,
         transcript: &mut Transcript,
-        polys: &[impl AsRef<[E::ScalarField]>],
         evals: &[impl AsRef<[E::ScalarField]>],
+        polys: &[impl AsRef<[E::ScalarField]>],
         points: &[E::ScalarField],
     ) -> Result<Proof<E>, Error> {
         let field_size_bytes = get_field_size::<E::ScalarField>();
@@ -164,7 +181,7 @@ mod tests {
             .collect::<Vec<_>>();
         let mut open_transcript = Transcript::new(b"testing");
         let open = s
-            .open(&mut open_transcript, &coeffs, &evals, &points)
+            .open(&mut open_transcript, &evals, &coeffs, &points)
             .expect("Open failed");
 
         let mut verify_transcript = Transcript::new(b"testing");
