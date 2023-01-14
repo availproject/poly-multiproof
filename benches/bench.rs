@@ -56,7 +56,7 @@ fn open_benchmark(c: &mut Criterion) {
 }
 
 fn verify_benchmark(c: &mut Criterion) {
-    let mut group = c.benchmark_group("open");
+    let mut group = c.benchmark_group("verify");
     let m1 = method1::Setup::<Bls12_381>::new(MAX_SIZE, MAX_SIZE, &mut thread_rng());
     let m2: method2::Setup<Bls12_381> = m1.clone().try_into().unwrap();
     let grid = TestGrid::<Fr>::gen_grid(MAX_LOG_SIZE);
