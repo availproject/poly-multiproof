@@ -11,7 +11,7 @@ use ark_std::rand::RngCore;
 
 use crate::{
     get_challenge, get_field_size, method1, transcribe_generic, transcribe_points_and_evals,
-    MultiOpenKzg,
+    MultiOpenKzg, Commitment,
 };
 
 use super::{
@@ -41,8 +41,6 @@ impl<E: Pairing> TryFrom<method1::Setup<E>> for Setup<E> {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct Commitment<E: Pairing>(E::G1Affine);
 #[derive(Clone, Debug)]
 pub struct Proof<E: Pairing>(E::G1Affine, E::G1Affine);
 

@@ -43,6 +43,9 @@ impl From<SerializationError> for Error {
     }
 }
 
+#[derive(Debug)]
+pub struct Commitment<E: Pairing>(E::G1Affine);
+
 pub trait MultiOpenKzg<E: Pairing> {
     type Commitment;
     type Proof;

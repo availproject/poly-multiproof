@@ -6,7 +6,7 @@ use std::usize;
 use ark_ec::{pairing::Pairing, CurveGroup};
 use ark_std::rand::RngCore;
 
-use crate::{get_challenge, get_field_size, transcribe_points_and_evals, MultiOpenKzg};
+use crate::{get_challenge, get_field_size, transcribe_points_and_evals, Commitment, MultiOpenKzg};
 
 use super::{
     gen_curve_powers, gen_powers, lagrange_interp, linear_combination, poly_div_q_r,
@@ -19,8 +19,6 @@ pub struct Setup<E: Pairing> {
     pub(crate) powers_of_g2: Vec<E::G2Affine>,
 }
 
-#[derive(Debug)]
-pub struct Commitment<E: Pairing>(E::G1Affine);
 #[derive(Debug)]
 pub struct Proof<E: Pairing>(E::G1Affine);
 
