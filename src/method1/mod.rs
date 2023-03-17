@@ -24,7 +24,7 @@ pub struct M1NoPrecomp<E: Pairing> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Proof<E: Pairing>(E::G1Affine);
+pub struct Proof<E: Pairing>(pub E::G1Affine);
 
 impl<E: Pairing> M1NoPrecomp<E> {
     pub fn new(max_coeffs: usize, max_pts: usize, rng: &mut impl RngCore) -> Self {

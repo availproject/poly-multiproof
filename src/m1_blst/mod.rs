@@ -36,7 +36,7 @@ impl Clone for M1NoPrecomp {
 }
 
 #[derive(Debug, Clone)]
-pub struct Proof(G1Affine);
+pub struct Proof(pub G1Affine);
 
 impl M1NoPrecomp {
     pub fn new(max_coeffs: usize, max_pts: usize, rng: &mut impl RngCore) -> Self {

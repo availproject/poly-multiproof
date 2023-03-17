@@ -66,7 +66,7 @@ impl<E: Pairing> M2NoPrecomp<E> {
 }
 
 #[derive(Clone, Debug)]
-pub struct Proof<E: Pairing>(E::G1Affine, E::G1Affine);
+pub struct Proof<E: Pairing>(pub E::G1Affine, pub E::G1Affine);
 
 impl<E: Pairing> M2NoPrecomp<E> {
     fn open_with_vanishing_poly(

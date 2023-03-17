@@ -13,12 +13,19 @@ use merlin::Transcript;
 #[cfg(test)]
 use rand::thread_rng as test_rng;
 
+// Public uses
+pub use ark_poly;
+pub use ark_serialize;
+pub use merlin;
+pub use ark_ff;
+
 pub mod method1;
 pub mod method2;
 
 pub mod lagrange;
 #[cfg(feature = "blst")]
 pub mod m1_blst;
+
 pub mod traits;
 
 #[derive(Debug, Eq, PartialEq)]
