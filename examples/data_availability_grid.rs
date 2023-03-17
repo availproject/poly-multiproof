@@ -95,27 +95,6 @@ impl Grid {
             }
         }
 
-        for j in 0..GRID_WIDTH {
-            let mut col = Vec::with_capacity(rows.len());
-            for i in 0..rows.len() {
-                col.push(rows[i][j]);
-            }
-            domain_h.ifft_in_place(&mut col);
-            domain_2h.fft_in_place(&mut col);
-            for i in 0..col.len() {
-                interp_rows[i][j] = col[i];
-            }
-        }
-
-        let domain_w = GeneralEvaluationDomain::<Fr>::new(GRID_WIDTH).unwrap();
-        let domain_2w = GeneralEvaluationDomain::<Fr>::new(2 * GRID_WIDTH).unwrap();
-        assert_eq!(domain_w.size(), GRID_WIDTH);
-        assert_eq!(domain_2w.size(), 2 * GRID_WIDTH);
-        for i in 0..2 * GRID_HEIGHT {
-            let mut a = domain_w.ifft(&interp_rows[i]);
-            domain_2w.fft_in_place(&mut a);
-        }
-
         end_timer!(erasure_t);
 
         let domain_w = GeneralEvaluationDomain::<Fr>::new(GRID_WIDTH).unwrap();
