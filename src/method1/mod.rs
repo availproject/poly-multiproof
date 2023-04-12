@@ -3,6 +3,7 @@ use crate::{
     traits::{Committer, PolyMultiProofNoPrecomp},
 };
 use ark_poly::univariate::DensePolynomial;
+use ark_serialize::{CanonicalSerialize, CanonicalDeserialize};
 use ark_std::{UniformRand, vec::Vec};
 use merlin::Transcript;
 
@@ -23,7 +24,7 @@ pub struct M1NoPrecomp<E: Pairing> {
     pub powers_of_g2: Vec<E::G2Affine>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, CanonicalSerialize, CanonicalDeserialize)]
 pub struct Proof<E: Pairing>(pub E::G1Affine);
 
 impl<E: Pairing> M1NoPrecomp<E> {

@@ -4,7 +4,7 @@ use crate::{
     traits::{Committer, PolyMultiProofNoPrecomp},
 };
 use ark_poly::univariate::DensePolynomial;
-use ark_std::{UniformRand, vec::Vec};
+use ark_std::{vec::Vec, UniformRand};
 use blst::{p1_affines, p2_affines};
 use merlin::Transcript;
 
@@ -35,8 +35,7 @@ impl Clone for M1NoPrecomp {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Proof(pub G1Affine);
+pub type Proof = crate::method1::Proof<Bls12_381>;
 
 impl M1NoPrecomp {
     pub fn new(max_coeffs: usize, max_pts: usize, rng: &mut impl RngCore) -> Self {
@@ -97,9 +96,9 @@ impl M1NoPrecomp {
         // The result is the correct quotient
         let (q, _) = poly_div_q_r(DensePolynomial { coeffs: fsum }.into(), vp.into())?;
         // Open to the resulting polynomial
-        Ok(Proof(
-            fast_msm::g1_msm(&self.prepped_g1s, &q, self.powers_of_g1.len())?.into_affine(),
-        ))
+        Ok(Proof {
+            0: fast_msm::g1_msm(&self.prepped_g1s, &q, self.powers_of_g1.len())?.into_affine(),
+        })
     }
 
     fn verify_with_lag_ctx_g2_zeros(
@@ -183,7 +182,7 @@ mod tests {
     };
     use ark_bls12_381::Fr;
     use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial, Polynomial};
-    use ark_std::{UniformRand, vec, vec::Vec};
+    use ark_std::{vec, vec::Vec, UniformRand};
     use merlin::Transcript;
 
     #[test]

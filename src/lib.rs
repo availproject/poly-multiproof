@@ -7,7 +7,7 @@ use ark_poly::{
     univariate::{DenseOrSparsePolynomial, DensePolynomial},
     DenseUVPolynomial,
 };
-use ark_serialize::{CanonicalSerialize, Compress, SerializationError};
+use ark_serialize::{CanonicalSerialize, Compress, SerializationError, CanonicalDeserialize};
 use ark_std::{vec::Vec, vec};
 use merlin::Transcript;
 #[cfg(test)]
@@ -60,7 +60,7 @@ impl From<SerializationError> for Error {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, CanonicalSerialize, CanonicalDeserialize)]
 pub struct Commitment<E: Pairing>(pub E::G1Affine);
 
 pub(crate) fn gen_powers<F: Field>(element: F, len: usize) -> Vec<F> {

@@ -3,6 +3,7 @@ use crate::{
     traits::{Committer, PolyMultiProofNoPrecomp},
 };
 use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial, Polynomial};
+use ark_serialize::{CanonicalSerialize, CanonicalDeserialize};
 use ark_std::{UniformRand, vec::Vec, vec};
 use merlin::Transcript;
 use ark_ff::One;
@@ -65,7 +66,7 @@ impl<E: Pairing> M2NoPrecomp<E> {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, CanonicalSerialize, CanonicalDeserialize)]
 pub struct Proof<E: Pairing>(pub E::G1Affine, pub E::G1Affine);
 
 impl<E: Pairing> M2NoPrecomp<E> {
