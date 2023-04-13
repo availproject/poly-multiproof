@@ -1,3 +1,4 @@
+use ark_bls12_381::{G1Projective, G2Projective};
 use ark_ff::{BigInt, Zero};
 use ark_serialize::CanonicalSerialize;
 use ark_std::{vec, vec::Vec};
@@ -61,6 +62,9 @@ pub(crate) fn g1_msm(
     mut scalars: &[ark_bls12_381::Fr],
     g1s_len: usize,
 ) -> Result<ark_bls12_381::G1Projective, Error> {
+    if scalars.len() == 0 {
+        return Ok(G1Projective::zero());
+    }
     if g1s_len < scalars.len() {
         return Err(Error::TooManyScalars {
             n_coeffs: scalars.len(),
@@ -100,6 +104,9 @@ pub(crate) fn g2_msm(
     mut scalars: &[ark_bls12_381::Fr],
     g2s_len: usize,
 ) -> Result<ark_bls12_381::G2Projective, Error> {
+    if scalars.len() == 0 {
+        return Ok(G2Projective::zero());
+    }
     if g2s_len < scalars.len() {
         return Err(Error::TooManyScalars {
             n_coeffs: scalars.len(),
@@ -151,6 +158,7 @@ fn trim_zeros(mut scalars: &[ark_bls12_381::Fr]) -> &[ark_bls12_381::Fr] {
 
 #[cfg(test)]
 mod tests {
+    use ark_bls12_381::{G1Projective, G2Projective};
     use ark_ec::CurveGroup;
     use ark_ff::UniformRand;
     use ark_std::vec::Vec;
@@ -220,7 +228,7 @@ mod tests {
         let pg2 = prep_g2s(&g2s);
 
         let res1 = g1_msm(&pg1, &scalars, g1s.len()).unwrap();
-        let res2 = g2_msm(&pg2, &scalars, g1s.len()).unwrap();
+        let res2 = g2_msm(&pg2, &scalars, g2s.len()).unwrap();
 
         let g1s_affine = g1s.iter().map(|p| p.into_affine()).collect::<Vec<_>>();
         let g2s_affine = g2s.iter().map(|p| p.into_affine()).collect::<Vec<_>>();
@@ -230,5 +238,17 @@ mod tests {
 
         assert_eq!(res1, alt_res1);
         assert_eq!(res2, alt_res2);
+    }
+
+    #[test]
+    fn test_no_scalars_returns_zero() {
+        let g1s = vec![G1Projective::rand(&mut thread_rng())];
+        let g2s = vec![G2Projective::rand(&mut thread_rng())];
+
+        let pg1 = prep_g1s(&g1s);
+        let pg2 = prep_g2s(&g2s);
+
+        assert_eq!(Ok(G1Projective::zero()), g1_msm(&pg1, &[], g1s.len()));
+        assert_eq!(Ok(G2Projective::zero()), g2_msm(&pg2, &[], g2s.len()));
     }
 }
