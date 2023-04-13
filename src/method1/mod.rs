@@ -1,10 +1,10 @@
 use crate::{
     lagrange::LagrangeInterpContext,
-    traits::{Committer, PolyMultiProofNoPrecomp},
+    traits::{Committer, PolyMultiProofNoPrecomp}, check_opening_sizes, check_verify_sizes,
 };
 use ark_poly::univariate::DensePolynomial;
-use ark_serialize::{CanonicalSerialize, CanonicalDeserialize};
-use ark_std::{UniformRand, vec::Vec};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_std::{vec::Vec, UniformRand};
 use merlin::Transcript;
 
 use ark_ec::{pairing::Pairing, CurveGroup};
@@ -73,6 +73,8 @@ impl<E: Pairing> M1NoPrecomp<E> {
         points: &[E::ScalarField],
         vp: &DensePolynomial<E::ScalarField>,
     ) -> Result<Proof<E>, Error> {
+        // Check sizes
+        check_opening_sizes(evals, polys, points)?;
         // Commit the evals and the points to the transcript
         let field_size_bytes = get_field_size::<E::ScalarField>();
         transcribe_points_and_evals(transcript, points, evals, field_size_bytes)?;
@@ -104,6 +106,8 @@ impl<E: Pairing> M1NoPrecomp<E> {
         lag_ctx: &LagrangeInterpContext<E::ScalarField>,
         g2_zeros: &E::G2,
     ) -> Result<bool, Error> {
+        check_verify_sizes(commits, points, evals)?;
+
         let field_size_bytes = get_field_size::<E::ScalarField>();
         transcribe_points_and_evals(transcript, points, evals, field_size_bytes)?;
         let gamma = get_challenge(transcript, b"open gamma", field_size_bytes);
@@ -166,41 +170,13 @@ impl<E: Pairing> PolyMultiProofNoPrecomp<E> for M1NoPrecomp<E> {
 #[cfg(test)]
 mod tests {
     use super::M1NoPrecomp;
-    use crate::{
-        test_rng,
-        traits::{Committer, PolyMultiProofNoPrecomp},
-    };
-    use ark_bls12_381::{Bls12_381, Fr};
-    use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial, Polynomial};
-    use ark_std::{UniformRand, vec::Vec};
-    use merlin::Transcript;
+    use crate::{test_rng, testing::{test_size_errors, test_basic_no_precomp}};
+    use ark_bls12_381::Bls12_381;
 
     #[test]
     fn test_basic_open_works() {
         let s = M1NoPrecomp::<Bls12_381>::new(256, 30, &mut test_rng());
-        let points = (0..30)
-            .map(|_| Fr::rand(&mut test_rng()))
-            .collect::<Vec<_>>();
-        let polys = (0..20)
-            .map(|_| DensePolynomial::<Fr>::rand(50, &mut test_rng()))
-            .collect::<Vec<_>>();
-        let evals: Vec<Vec<_>> = polys
-            .iter()
-            .map(|p| points.iter().map(|x| p.evaluate(x)).collect())
-            .collect();
-        let coeffs = polys.iter().map(|p| p.coeffs.clone()).collect::<Vec<_>>();
-        let commits = coeffs
-            .iter()
-            .map(|p| s.commit(p).expect("Commit failed"))
-            .collect::<Vec<_>>();
-        let mut transcript = Transcript::new(b"testing");
-        let open = s
-            .open(&mut transcript, &evals, &coeffs, &points)
-            .expect("Open failed");
-        let mut transcript = Transcript::new(b"testing");
-        assert_eq!(
-            Ok(true),
-            s.verify(&mut transcript, &commits, &points, &evals, &open)
-        );
+        test_basic_no_precomp(&s);
+        test_size_errors(&s);
     }
 }

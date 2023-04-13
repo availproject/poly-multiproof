@@ -97,15 +97,9 @@ impl<E: Pairing> PolyMultiProof<E> for M1Precomp<E> {
 #[cfg(test)]
 mod tests {
     use super::M1Precomp;
-    use crate::{
-        method1::M1NoPrecomp,
-        test_rng,
-        traits::{Committer, PolyMultiProof},
-    };
+    use crate::{method1::M1NoPrecomp, test_rng, testing::test_basic_precomp};
     use ark_bls12_381::{Bls12_381, Fr};
-    use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial, Polynomial};
-    use ark_std::{UniformRand, vec::Vec, vec};
-    use merlin::Transcript;
+    use ark_std::{vec, vec::Vec, UniformRand};
 
     #[test]
     fn test_basic_open_works() {
@@ -114,26 +108,6 @@ mod tests {
             .collect::<Vec<_>>();
         let s = M1NoPrecomp::<Bls12_381>::new(256, 32, &mut test_rng());
         let s = M1Precomp::from_inner(s, vec![points.clone()]).expect("Failed to construct");
-        let polys = (0..20)
-            .map(|_| DensePolynomial::<Fr>::rand(50, &mut test_rng()))
-            .collect::<Vec<_>>();
-        let evals: Vec<Vec<_>> = polys
-            .iter()
-            .map(|p| points.iter().map(|x| p.evaluate(x)).collect())
-            .collect();
-        let coeffs = polys.iter().map(|p| p.coeffs.clone()).collect::<Vec<_>>();
-        let commits = coeffs
-            .iter()
-            .map(|p| s.commit(p).expect("Commit failed"))
-            .collect::<Vec<_>>();
-        let mut transcript = Transcript::new(b"testing");
-        let open = s
-            .open(&mut transcript, &evals, &coeffs, 0)
-            .expect("Open failed");
-        let mut transcript = Transcript::new(b"testing");
-        assert_eq!(
-            Ok(true),
-            s.verify(&mut transcript, &commits, 0, &evals, &open)
-        );
+        test_basic_precomp(&s, &points)
     }
 }

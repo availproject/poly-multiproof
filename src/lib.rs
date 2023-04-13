@@ -7,17 +7,17 @@ use ark_poly::{
     univariate::{DenseOrSparsePolynomial, DensePolynomial},
     DenseUVPolynomial,
 };
-use ark_serialize::{CanonicalSerialize, Compress, SerializationError, CanonicalDeserialize};
-use ark_std::{vec::Vec, vec};
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, SerializationError};
+use ark_std::{vec, vec::Vec};
 use merlin::Transcript;
 #[cfg(test)]
 use rand::thread_rng as test_rng;
 
 // Public uses
+pub use ark_ff;
 pub use ark_poly;
 pub use ark_serialize;
 pub use merlin;
-pub use ark_ff;
 
 pub mod method1;
 pub mod method2;
@@ -28,11 +28,14 @@ pub mod m1_blst;
 
 pub mod traits;
 
+#[cfg(test)]
+pub mod testing;
+
 #[derive(Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "std", derive(thiserror::Error))]
 pub enum Error {
     #[cfg_attr(feature = "std", error("Polynomial given is too large"))]
-    PolynomialTooLarge {
+    TooManyScalars {
         n_coeffs: usize,
         expected_max: usize,
     },
@@ -48,10 +51,20 @@ pub enum Error {
     },
     #[cfg_attr(feature = "std", error("Serialization error"))]
     SerializationError,
-    #[cfg_attr(feature = "std", error("Not enough g2 powers"))]
-    NotEnoughG2Powers,
     #[cfg_attr(feature = "std", error("Not given any points"))]
     NoPointsGiven,
+    #[cfg_attr(
+        feature = "std",
+        error("Given {n_eval_rows} evaluations, but {n_polys} polynomials")
+    )]
+    EvalsAndPolysDifferentSizes { n_eval_rows: usize, n_polys: usize },
+    #[cfg_attr(feature = "std", error("Given {n_points} points, but {n_evals} evals"))]
+    EvalsAndPointsDifferentSizes { n_points: usize, n_evals: usize },
+    #[cfg_attr(
+        feature = "std",
+        error("Given {n_commits} commits, but {n_evals} evals")
+    )]
+    EvalsAndCommitsDifferentSizes { n_evals: usize, n_commits: usize },
 }
 
 impl From<SerializationError> for Error {
@@ -77,7 +90,7 @@ pub(crate) fn curve_msm<G: ScalarMul + CurveGroup>(
     scalars: &[G::ScalarField],
 ) -> Result<G, Error> {
     if scalars.len() > bases.len() {
-        return Err(Error::PolynomialTooLarge {
+        return Err(Error::TooManyScalars {
             n_coeffs: scalars.len(),
             expected_max: bases.len(),
         });
@@ -193,6 +206,50 @@ pub(crate) fn get_challenge<F: PrimeField>(
     let mut challenge_bytes = vec![0u8; field_size_bytes];
     transcript.challenge_bytes(label, &mut challenge_bytes);
     F::from_be_bytes_mod_order(&challenge_bytes)
+}
+
+pub(crate) fn check_opening_sizes<F>(
+    evals: &[impl AsRef<[F]>],
+    polys: &[impl AsRef<[F]>],
+    points: &[F],
+) -> Result<(), Error> {
+    if evals.len() != polys.len() {
+        return Err(Error::EvalsAndPolysDifferentSizes {
+            n_eval_rows: evals.len(),
+            n_polys: polys.len(),
+        });
+    }
+    for e in evals {
+        if e.as_ref().len() != points.len() {
+            return Err(Error::EvalsAndPointsDifferentSizes {
+                n_evals: e.as_ref().len(),
+                n_points: points.len(),
+            });
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn check_verify_sizes<F, C>(
+    commits: &[C],
+    points: &[F],
+    evals: &[impl AsRef<[F]>],
+) -> Result<(), Error> {
+    if evals.len() != commits.len() {
+        return Err(Error::EvalsAndCommitsDifferentSizes {
+            n_evals: evals.len(),
+            n_commits: commits.len(),
+        });
+    }
+    for e in evals {
+        if e.as_ref().len() != points.len() {
+            return Err(Error::EvalsAndPointsDifferentSizes {
+                n_evals: e.as_ref().len(),
+                n_points: points.len(),
+            });
+        }
+    }
+    Ok(())
 }
 
 #[macro_export]

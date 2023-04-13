@@ -1,5 +1,5 @@
 use crate::{
-    gen_curve_powers_proj,
+    check_opening_sizes, check_verify_sizes, gen_curve_powers_proj,
     lagrange::LagrangeInterpContext,
     traits::{Committer, PolyMultiProofNoPrecomp},
 };
@@ -81,6 +81,8 @@ impl M1NoPrecomp {
         points: &[Fr],
         vp: &DensePolynomial<Fr>,
     ) -> Result<Proof, Error> {
+        check_opening_sizes(evals, polys, points)?;
+
         // Commit the evals and the points to the transcript
         let field_size_bytes = get_field_size::<Fr>();
         transcribe_points_and_evals(transcript, points, evals, field_size_bytes)?;
@@ -111,6 +113,8 @@ impl M1NoPrecomp {
         lag_ctx: &LagrangeInterpContext<Fr>,
         g2_zeros: &G2,
     ) -> Result<bool, Error> {
+        check_verify_sizes(commits, points, evals)?;
+
         let field_size_bytes = get_field_size::<Fr>();
         transcribe_points_and_evals(transcript, points, evals, field_size_bytes)?;
         let gamma = get_challenge(transcript, b"open gamma", field_size_bytes);
@@ -178,6 +182,7 @@ mod tests {
     use super::M1NoPrecomp;
     use crate::{
         test_rng,
+        testing::{test_basic_no_precomp, test_size_errors},
         traits::{Committer, PolyMultiProofNoPrecomp},
     };
     use ark_bls12_381::Fr;
@@ -188,30 +193,8 @@ mod tests {
     #[test]
     fn test_basic_open_works() {
         let s = M1NoPrecomp::new(256, 32, &mut test_rng());
-        let points = (0..30)
-            .map(|_| Fr::rand(&mut test_rng()))
-            .collect::<Vec<_>>();
-        let polys = (0..20)
-            .map(|_| DensePolynomial::<Fr>::rand(50, &mut test_rng()))
-            .collect::<Vec<_>>();
-        let evals: Vec<Vec<_>> = polys
-            .iter()
-            .map(|p| points.iter().map(|x| p.evaluate(x)).collect())
-            .collect();
-        let coeffs = polys.iter().map(|p| p.coeffs.clone()).collect::<Vec<_>>();
-        let commits = coeffs
-            .iter()
-            .map(|p| s.commit(p).expect("Commit failed"))
-            .collect::<Vec<_>>();
-        let mut transcript = Transcript::new(b"testing");
-        let open = s
-            .open(&mut transcript, &evals, &coeffs, &points)
-            .expect("Open failed");
-        let mut transcript = Transcript::new(b"testing");
-        assert_eq!(
-            Ok(true),
-            s.verify(&mut transcript, &commits, &points, &evals, &open)
-        );
+        test_basic_no_precomp(&s);
+        test_size_errors(&s);
     }
 
     #[test]

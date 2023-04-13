@@ -1,9 +1,9 @@
-use ark_ff::BigInt;
+use ark_ff::{BigInt, Zero};
 use ark_serialize::CanonicalSerialize;
-use ark_std::{vec::Vec, vec};
+use ark_std::{vec, vec::Vec};
 use blst::{
-    blst_fp, blst_fp2, blst_p1, blst_p1_affine, blst_p1_from_affine, blst_p1_mult,
-    blst_p2, blst_p2_affine, blst_p2_from_affine, blst_p2_mult, p1_affines, p2_affines,
+    blst_fp, blst_fp2, blst_p1, blst_p1_affine, blst_p1_from_affine, blst_p1_mult, blst_p2,
+    blst_p2_affine, blst_p2_from_affine, blst_p2_mult, p1_affines, p2_affines,
 };
 use core::marker::PhantomData;
 
@@ -55,17 +55,20 @@ fn prep_scalars(scalars: &[ark_bls12_381::Fr]) -> Vec<u8> {
     scalars_le
 }
 
+/// Do a fast g1 msm. The number of scalars must be less than the number of points.
 pub(crate) fn g1_msm(
     g1s: &p1_affines,
-    scalars: &[ark_bls12_381::Fr],
+    mut scalars: &[ark_bls12_381::Fr],
     g1s_len: usize,
 ) -> Result<ark_bls12_381::G1Projective, Error> {
-    if g1s_len < scalars.len() / 32 {
-        return Err(Error::PolynomialTooLarge {
-            n_coeffs: scalars.len() / 32,
+    if g1s_len < scalars.len() {
+        return Err(Error::TooManyScalars {
+            n_coeffs: scalars.len(),
             expected_max: g1s_len,
         });
     }
+    scalars = trim_zeros(scalars);
+
     let scalars_le = prep_scalars(&scalars);
     let res_p1 = if scalars.len() == 1 {
         let pt_affine = g1s.points[0];
@@ -91,17 +94,20 @@ pub(crate) fn g1_msm(
     })
 }
 
+/// Do a fast g2 msm. The number of scalars must be less than the number of points.
 pub(crate) fn g2_msm(
     g2s: &p2_affines,
-    scalars: &[ark_bls12_381::Fr],
+    mut scalars: &[ark_bls12_381::Fr],
     g2s_len: usize,
 ) -> Result<ark_bls12_381::G2Projective, Error> {
-    if g2s_len < scalars.len() / 32 {
-        return Err(Error::PolynomialTooLarge {
-            n_coeffs: scalars.len() / 32,
+    if g2s_len < scalars.len() {
+        return Err(Error::TooManyScalars {
+            n_coeffs: scalars.len(),
             expected_max: g2s_len,
         });
     }
+    scalars = trim_zeros(scalars);
+
     let scalars_le = prep_scalars(&scalars);
     let res_p2 = if scalars.len() == 1 {
         let pt_affine = g2s.points[0];
@@ -136,16 +142,45 @@ pub(crate) fn g2_msm(
     })
 }
 
+fn trim_zeros(mut scalars: &[ark_bls12_381::Fr]) -> &[ark_bls12_381::Fr] {
+    while scalars.last().map(|s| s.is_zero()).unwrap_or(false) {
+        scalars = &scalars[..scalars.len() - 1];
+    }
+    scalars
+}
+
 #[cfg(test)]
 mod tests {
     use ark_ec::CurveGroup;
     use ark_ff::UniformRand;
-    use rand::thread_rng;
     use ark_std::vec::Vec;
+    use rand::thread_rng;
 
     use crate::curve_msm;
 
     use super::*;
+
+    #[test]
+    fn test_msm_errors() {
+        let g1s = (0..512)
+            .map(|_| ark_bls12_381::G1Projective::rand(&mut thread_rng()))
+            .collect::<Vec<_>>();
+
+        let scalars = (0..512)
+            .map(|_| ark_bls12_381::Fr::rand(&mut thread_rng()))
+            .collect::<Vec<_>>();
+
+        fn run(err: bool, g1s: &[ark_bls12_381::G1Projective], scalars: &[ark_bls12_381::Fr]) {
+            let pg1 = prep_g1s(&g1s);
+            let res = g1_msm(&pg1, &scalars, g1s.len());
+            assert_eq!(res.is_err(), err);
+        }
+
+        run(true, g1s[0..1].as_ref(), scalars[0..2].as_ref());
+        run(true, g1s[0..10].as_ref(), scalars[0..20].as_ref());
+        run(true, g1s[0..19].as_ref(), scalars[0..20].as_ref());
+        run(false, g1s[0..20].as_ref(), scalars[0..20].as_ref());
+    }
 
     #[test]
     fn test_msm_works() {
