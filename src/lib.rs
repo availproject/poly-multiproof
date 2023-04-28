@@ -5,7 +5,7 @@ use ark_ec::{pairing::Pairing, scalar_mul::fixed_base::FixedBase, CurveGroup, Sc
 use ark_ff::{Field, PrimeField};
 use ark_poly::{
     univariate::{DenseOrSparsePolynomial, DensePolynomial},
-    DenseUVPolynomial,
+    DenseUVPolynomial, EvaluationDomain, GeneralEvaluationDomain,
 };
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize, Compress, SerializationError};
 use ark_std::{vec, vec::Vec};
@@ -65,6 +65,8 @@ pub enum Error {
         error("Given {n_commits} commits, but {n_evals} evals")
     )]
     EvalsAndCommitsDifferentSizes { n_evals: usize, n_commits: usize },
+    #[cfg_attr(feature = "std", error("Unable to construct a domain of size {0}"))]
+    DomainConstructionFailed(usize),
 }
 
 impl From<SerializationError> for Error {
@@ -75,6 +77,29 @@ impl From<SerializationError> for Error {
 
 #[derive(Debug, Clone, CanonicalSerialize, CanonicalDeserialize)]
 pub struct Commitment<E: Pairing>(pub E::G1Affine);
+
+impl<E: Pairing> Commitment<E> {
+    pub fn extend_commitments(
+        commits: impl AsRef<[Commitment<E>]>,
+        output_size: usize,
+    ) -> Result<Vec<Self>, Error> {
+        let mut vals: Vec<E::G1> = commits
+            .as_ref()
+            .iter()
+            .map(|x| x.0.into())
+            .collect::<Vec<_>>();
+        let domain = GeneralEvaluationDomain::<E::ScalarField>::new(vals.len())
+            .ok_or(Error::DomainConstructionFailed(vals.len()))?;
+        let domain_ext = GeneralEvaluationDomain::<E::ScalarField>::new(output_size)
+            .ok_or(Error::DomainConstructionFailed(output_size))?;
+        domain.ifft_in_place(&mut vals);
+        domain_ext.fft_in_place(&mut vals);
+        Ok(vals
+            .into_iter()
+            .map(|x| Commitment(x.into()))
+            .collect::<Vec<_>>())
+    }
+}
 
 pub(crate) fn gen_powers<F: Field>(element: F, len: usize) -> Vec<F> {
     let mut powers = vec![F::one(); len];
