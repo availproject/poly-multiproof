@@ -1,6 +1,7 @@
-use crate::{test_rng, Error, Vec};
+use crate::{test_rng, traits::KZGProof, vec, Error, Vec};
+use ark_bls12_381::Bls12_381;
 use ark_ec::pairing::Pairing;
-use ark_ff::UniformRand;
+use ark_ff::{One, UniformRand, Zero};
 use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial, Polynomial};
 use merlin::Transcript;
 
@@ -151,4 +152,31 @@ pub fn test_size_errors<E: Pairing, P: PolyMultiProofNoPrecomp<E> + Committer<E>
             &open
         )
     );
+}
+
+pub fn test_kzg(srs: &(impl KZGProof<Bls12_381> + Committer<Bls12_381>)) {
+    use ark_bls12_381::Fr;
+
+    fn run(srs: &(impl KZGProof<Bls12_381> + Committer<Bls12_381>), coeffs: Vec<Fr>) {
+        let pt = Fr::rand(&mut test_rng());
+        let value = DensePolynomial::from_coefficients_vec(coeffs.clone()).evaluate(&pt);
+
+        let commit = srs.commit(&coeffs).unwrap();
+        let witness = srs.compute_witness_polynomial(coeffs, pt).unwrap();
+        let proof = srs.open(witness).unwrap();
+
+        let veri = srs.verify(&commit, pt, value, &proof).unwrap();
+        assert!(veri);
+    }
+
+    // Test random poly works
+    run(srs, DensePolynomial::<Fr>::rand(50, &mut test_rng()).coeffs);
+    // Test zero poly works
+    run(srs, vec![Fr::zero(); 50]);
+    // Test constant poly works
+    run(srs, vec![Fr::one(); 50]);
+    // Test unit poly works
+    let mut unit = vec![Fr::zero(); 50];
+    unit[0] = Fr::one();
+    run(srs, unit);
 }

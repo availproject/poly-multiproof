@@ -193,7 +193,10 @@ impl<E: Pairing> PolyMultiProofNoPrecomp<E> for M2NoPrecomp<E> {
 #[cfg(test)]
 mod tests {
     use super::M2NoPrecomp;
-    use crate::{test_rng, testing::{test_basic_no_precomp, test_size_errors}};
+    use crate::{
+        test_rng,
+        testing::{test_basic_no_precomp, test_size_errors},
+    };
     use ark_bls12_381::Bls12_381;
 
     #[test]

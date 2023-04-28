@@ -1,8 +1,9 @@
 use crate::{
+    check_opening_sizes, check_verify_sizes,
     lagrange::LagrangeInterpContext,
-    traits::{Committer, PolyMultiProofNoPrecomp}, check_opening_sizes, check_verify_sizes,
+    traits::{Committer, PolyMultiProofNoPrecomp},
 };
-use ark_poly::univariate::DensePolynomial;
+use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::{vec::Vec, UniformRand};
 use merlin::Transcript;
@@ -89,7 +90,10 @@ impl<E: Pairing> M1NoPrecomp<E> {
 
         // Polynomial divide, the remained would contain the gamma * ri_s,
         // The result is the correct quotient
-        let (q, _) = poly_div_q_r(DensePolynomial { coeffs: fsum }.into(), vp.into())?;
+        let (q, _) = poly_div_q_r(
+            DensePolynomial::from_coefficients_vec(fsum).into(),
+            vp.into(),
+        )?;
         // Open to the resulting polynomial
         Ok(Proof(
             super::curve_msm::<E::G1>(&self.powers_of_g1, &q)?.into_affine(),
@@ -170,7 +174,10 @@ impl<E: Pairing> PolyMultiProofNoPrecomp<E> for M1NoPrecomp<E> {
 #[cfg(test)]
 mod tests {
     use super::M1NoPrecomp;
-    use crate::{test_rng, testing::{test_size_errors, test_basic_no_precomp}};
+    use crate::{
+        test_rng,
+        testing::{test_basic_no_precomp, test_size_errors},
+    };
     use ark_bls12_381::Bls12_381;
 
     #[test]

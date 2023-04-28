@@ -1,6 +1,6 @@
 use ark_bls12_381::{Bls12_381, Fr};
-use ark_ec::pairing::Pairing;
-use ark_ff::PrimeField;
+use ark_ec::{pairing::Pairing, CurveGroup};
+use ark_ff::{PrimeField, UniformRand};
 use ark_poly::{
     univariate::DensePolynomial, DenseUVPolynomial, EvaluationDomain, Radix2EvaluationDomain,
 };
@@ -178,6 +178,46 @@ fn open_benchmark(c: &mut Criterion) {
     }
 }
 
+fn pairing_benchmark(c: &mut Criterion) {
+    use ark_ff::One;
+    let mut group = c.benchmark_group("pairing");
+    let mut rng = thread_rng();
+    let g1 = ark_bls12_381::G1Projective::rand(&mut rng);
+    let g2 = ark_bls12_381::G2Projective::rand(&mut rng);
+    let z = Fr::rand(&mut rng);
+    let h1 = ark_bls12_381::G1Projective::rand(&mut rng) * (Fr::one() / z);
+    let h2 = ark_bls12_381::G2Projective::rand(&mut rng) * z;
+    let g1aff = g1.into_affine();
+    let g2aff = g2.into_affine();
+    let h1aff = h1.into_affine();
+    let h2aff = h2.into_affine();
+    group.bench_function("ark_pairing_bench", |b| {
+        b.iter(|| {
+            let _ = ark_bls12_381::Bls12_381::pairing(g1, g2);
+        })
+    });
+    #[cfg(feature = "blst")]
+    group.bench_function("blst_pairing_bench", |b| {
+        b.iter(|| {
+            let _ = poly_multiproof::m1_blst::fast_msm::pairing(g1aff, g2aff);
+        })
+    });
+    #[cfg(feature = "blst")]
+    group.bench_function("blst_slow_check", |b| {
+        b.iter(|| {
+            let a1 = poly_multiproof::m1_blst::fast_msm::pairing(g1aff, g2aff);
+            let a2 = poly_multiproof::m1_blst::fast_msm::pairing(h1aff, h2aff);
+            a1 == a2
+        })
+    });
+    #[cfg(feature = "blst")]
+    group.bench_function("blst_fast_check", |b| {
+        b.iter(|| {
+            poly_multiproof::m1_blst::fast_msm::check_pairings_equal(g1aff, g2aff, h1aff, h2aff)
+        })
+    });
+}
+
 struct TestGrid<F: Clone> {
     coeffs: Vec<Vec<F>>,
     evals: Vec<Vec<F>>,
@@ -216,5 +256,5 @@ impl<F: PrimeField> TestGrid<F> {
     }
 }
 
-criterion_group!(benches, open_benchmark, verify_benchmark);
+criterion_group!(benches, pairing_benchmark, open_benchmark, verify_benchmark);
 criterion_main!(benches);

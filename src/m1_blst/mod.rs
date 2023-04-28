@@ -3,12 +3,12 @@ use crate::{
     lagrange::LagrangeInterpContext,
     traits::{Committer, PolyMultiProofNoPrecomp},
 };
-use ark_poly::univariate::DensePolynomial;
+use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial};
 use ark_std::{vec::Vec, UniformRand};
 use blst::{p1_affines, p2_affines};
 use merlin::Transcript;
 
-use ark_ec::{pairing::Pairing, AffineRepr, CurveGroup};
+use ark_ec::{AffineRepr, CurveGroup};
 use ark_std::rand::RngCore;
 
 use crate::{get_challenge, get_field_size, transcribe_points_and_evals, Commitment};
@@ -19,7 +19,8 @@ pub use ark_bls12_381::{
     Bls12_381, Fr, G1Affine, G1Projective as G1, G2Affine, G2Projective as G2,
 };
 
-mod fast_msm;
+pub mod fast_msm;
+mod kzg;
 pub mod precompute;
 
 pub struct M1NoPrecomp {
@@ -96,7 +97,10 @@ impl M1NoPrecomp {
 
         // Polynomial divide, the remained would contain the gamma * ri_s,
         // The result is the correct quotient
-        let (q, _) = poly_div_q_r(DensePolynomial { coeffs: fsum }.into(), vp.into())?;
+        let (q, _) = poly_div_q_r(
+            DensePolynomial::from_coefficients_vec(fsum).into(),
+            vp.into(),
+        )?;
         // Open to the resulting polynomial
         Ok(Proof {
             0: fast_msm::g1_msm(&self.prepped_g1s, &q, self.powers_of_g1.len())?.into_affine(),
@@ -134,8 +138,11 @@ impl M1NoPrecomp {
 
         let g2 = self.powers_of_g2[0];
 
-        Ok(Bls12_381::pairing(gamma_cm_pt - gamma_ris_pt, g2)
-            == Bls12_381::pairing(proof.0, g2_zeros))
+        let lhsg1 = (gamma_cm_pt - gamma_ris_pt).into_affine();
+        let lhsg2 = g2.into_affine();
+        let rhsg1 = proof.0;
+        let rhsg2 = g2_zeros.into_affine();
+        Ok(fast_msm::check_pairings_equal(lhsg1, lhsg2, rhsg1, rhsg2))
     }
 }
 

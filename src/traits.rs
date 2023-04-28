@@ -1,11 +1,32 @@
 use ark_ec::pairing::Pairing;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
+use ark_std::vec::Vec;
 use merlin::Transcript;
 
 use crate::{Commitment, Error};
 
 pub trait Committer<E: Pairing> {
     fn commit(&self, poly: impl AsRef<[E::ScalarField]>) -> Result<Commitment<E>, Error>;
+}
+
+pub trait KZGProof<E: Pairing>: Sized {
+    type Proof: Clone;
+
+    fn compute_witness_polynomial(
+        &self,
+        poly: Vec<E::ScalarField>,
+        point: E::ScalarField,
+    ) -> Result<Vec<E::ScalarField>, Error>;
+
+    fn open(&self, witness_poly: Vec<E::ScalarField>) -> Result<Self::Proof, Error>;
+
+    fn verify(
+        &self,
+        commit: &crate::Commitment<E>,
+        point: E::ScalarField,
+        value: E::ScalarField,
+        proof: &Self::Proof,
+    ) -> Result<bool, crate::Error>;
 }
 
 pub trait PolyMultiProof<E: Pairing>: Sized {
@@ -116,7 +137,7 @@ impl AsBytes<32> for ark_bls12_381::Fr {
 }
 
 #[cfg(not(feature = "ark-bls12-381"))]
-impl <T: CanonicalDeserialize + CanonicalSerialize, const N: usize> AsBytes<N> for T {
+impl<T: CanonicalDeserialize + CanonicalSerialize, const N: usize> AsBytes<N> for T {
     fn to_bytes(&self) -> Result<[u8; N], Error> {
         let mut out = [0u8; N];
         self.serialize_compressed(&mut out[..])?;
