@@ -1,3 +1,4 @@
+//! # BDFG Method 2
 use crate::{
     check_opening_sizes, check_verify_sizes,
     lagrange::LagrangeInterpContext,
@@ -23,14 +24,19 @@ use crate::{
 
 pub mod precompute;
 
+/// A method 2 proof scheme with no precomputation of lagrange polynomials
 #[derive(Clone, Debug)]
 pub struct M2NoPrecomp<E: Pairing> {
+    /// The given powers tau in G1
     pub powers_of_g1: Vec<E::G1Affine>,
+    /// The G2 generator
     pub g2: E::G2Affine,
+    /// The G2 generator multiplied by tau
     pub g2x: E::G2Affine,
 }
 
 impl<E: Pairing> M2NoPrecomp<E> {
+    /// Make a new scheme from the given powers of tau and generators in affine form
     pub fn new_from_affine(
         powers_of_g1: Vec<E::G1Affine>,
         g2: E::G2Affine,
@@ -43,6 +49,7 @@ impl<E: Pairing> M2NoPrecomp<E> {
         }
     }
 
+    /// Make a new scheme from the given powers of tau and generators in projective form
     pub fn new_from_powers(powers_of_g1: &[E::G1], g2: &E::G2, g2x: &E::G2) -> Self {
         Self::new_from_affine(
             powers_of_g1.iter().map(|s| s.into_affine()).collect(),
@@ -51,6 +58,7 @@ impl<E: Pairing> M2NoPrecomp<E> {
         )
     }
 
+    /// Generate a new scheme with random generators and powers of tau
     pub fn new(max_coeffs: usize, rng: &mut impl RngCore) -> Self {
         let x = E::ScalarField::rand(rng);
         let g1 = E::G1::rand(rng);
@@ -58,6 +66,7 @@ impl<E: Pairing> M2NoPrecomp<E> {
         Self::new_from_scalar(x, g1, g2, max_coeffs)
     }
 
+    /// Generate a new scheme from a known secret scalar
     pub fn new_from_scalar(x: E::ScalarField, g1: E::G1, g2: E::G2, max_coeffs: usize) -> Self {
         let x_powers = gen_powers(x, max_coeffs);
         let powers_of_g1 = gen_curve_powers::<E::G1>(x_powers.as_ref(), g1);
@@ -67,6 +76,7 @@ impl<E: Pairing> M2NoPrecomp<E> {
     }
 }
 
+/// A proof for method 2 
 #[derive(Clone, Debug, CanonicalSerialize, CanonicalDeserialize)]
 pub struct Proof<E: Pairing>(pub E::G1Affine, pub E::G1Affine);
 

@@ -1,9 +1,10 @@
-# poly-multiproof
-
-Polynomial commitment schemes with fast openings on multiple points. 
-Methods and runtime:
-
-The two methods here are inspired by [BDFG21](https://eprint.iacr.org/2020/081.pdf).
+# `poly-multiproof`
+`poly-multiproof` is a library for generating BDFG21-esque proofs against standard KZG
+commitments. It supports both the method 1 and method 2 proofs from the paper, and contains
+an assembly-optimized implementation of method 1 for the BLS12-381 curve. When the points that
+will be committed to are known beforehand, separate `precompute` modules can be used which
+pre-compute lagrange polynomials and vanishing polynomials for the points, which can speed up
+proof generation by a significant amount, especially for larger proof sizes.
 
 ### Features
 * `blst` enables a specific `bls12-381` implementation which uses `blst` for curve msm.
@@ -11,6 +12,8 @@ The two methods here are inspired by [BDFG21](https://eprint.iacr.org/2020/081.p
   * PMP setup generation
   * operations in the `data_availability_grid` example
 * `print-trace` enables some tracing that shows the time certain things take to execute
+
+See [the `poly-multiproof` documentation](https://docs.rs/poly-multiproof) for more details.
 
 ### Examples
 
@@ -49,5 +52,6 @@ or to run with the goal of plotting, run
 ```bash
 RUSTFLAGS="-C target-feature=+bmi2,+adx" cargo +nightly criterion --features asm --plotting-backend disabled -- --quick --quiet &> bench_out.txt
 ```
-The logs in `bench_out.txt` can then be parsed and plotted in `Plot Benches.ipynb`. 
+The logs in `bench_out.txt` can then be parsed and plotted in `Plot Benches.ipynb`.
 Using `--quick` is nice since there are many many inputs benchmarked and it will still take an hour or so to run with `--quick`.
+

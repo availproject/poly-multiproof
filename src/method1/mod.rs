@@ -1,3 +1,5 @@
+//! # BDFG Method 1
+//! This contains a pure ark implementation of BDFG21 method 1
 use crate::{
     check_opening_sizes, check_verify_sizes,
     lagrange::LagrangeInterpContext,
@@ -19,16 +21,21 @@ use super::{
 
 pub mod precompute;
 
+/// A method 1 proof scheme with no precomputation of lagrange polynomials
 #[derive(Clone, Debug)]
 pub struct M1NoPrecomp<E: Pairing> {
+    /// The given powers tau in G1
     pub powers_of_g1: Vec<E::G1Affine>,
+    /// The given powers tau in G2
     pub powers_of_g2: Vec<E::G2Affine>,
 }
 
+/// A method 1 proof
 #[derive(Debug, Clone, CanonicalSerialize, CanonicalDeserialize)]
 pub struct Proof<E: Pairing>(pub E::G1Affine);
 
 impl<E: Pairing> M1NoPrecomp<E> {
+    /// Make a new random scheme 
     pub fn new(max_coeffs: usize, max_pts: usize, rng: &mut impl RngCore) -> Self {
         let x = E::ScalarField::rand(rng);
         let g1 = E::G1::rand(rng);
@@ -36,6 +43,7 @@ impl<E: Pairing> M1NoPrecomp<E> {
         Self::new_from_scalar(x, g1, g2, max_coeffs, max_pts)
     }
 
+    /// Make a new scheme from a given secret scalar
     pub fn new_from_scalar(
         x: E::ScalarField,
         g1: E::G1,
@@ -52,6 +60,7 @@ impl<E: Pairing> M1NoPrecomp<E> {
         Self::new_from_affine(powers_of_g1, powers_of_g2)
     }
 
+    /// Make a new scheme from the given projective powers
     pub fn new_from_powers(powers_of_g1: &[E::G1], powers_of_g2: &[E::G2]) -> Self {
         Self {
             powers_of_g1: powers_of_g1.iter().map(|s| s.into_affine()).collect(),
@@ -59,6 +68,7 @@ impl<E: Pairing> M1NoPrecomp<E> {
         }
     }
 
+    /// Make a new scheme from the given powers in affine form
     pub fn new_from_affine(powers_of_g1: Vec<E::G1Affine>, powers_of_g2: Vec<E::G2Affine>) -> Self {
         Self {
             powers_of_g1,

@@ -1,3 +1,4 @@
+//! # BDFG Method 2 with precomputation
 use ark_ec::pairing::Pairing;
 use ark_poly::univariate::DensePolynomial;
 use ark_std::vec::Vec;
@@ -11,8 +12,10 @@ use crate::lagrange::LagrangeInterpContext;
 use crate::traits::{Committer, PolyMultiProof};
 use crate::{cfg_iter, Commitment};
 
+/// Method 2 with precomputation
 #[derive(Clone, Debug)]
 pub struct M2Precomp<E: Pairing> {
+    /// The inner method 2 object without precomputation
     pub inner: super::M2NoPrecomp<E>,
     point_sets: Vec<Vec<E::ScalarField>>,
     vanishing_polys: Vec<DensePolynomial<E::ScalarField>>,
@@ -20,6 +23,7 @@ pub struct M2Precomp<E: Pairing> {
 }
 
 impl<E: Pairing> M2Precomp<E> {
+    /// Make a precompute-optimized version of a method 2 object for the given sets of points
     pub fn from_inner(
         inner: super::M2NoPrecomp<E>,
         point_sets: Vec<Vec<E::ScalarField>>,

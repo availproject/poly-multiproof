@@ -7,21 +7,21 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ark-std = { version = "0.4.0-alpha", default-features = false }
-ark-ec = { version = "0.4.0-alpha.7", default-features = false }
-ark-ff = { version = "0.4.0-alpha.7", default-features = false }
-ark-poly = { version = "0.4.0-alpha.7", default-features = false }
-ark-serialize = { version = "0.4.0-alpha.7", default-features = false }
+ark-std = { version = "0.4.0", default-features = false }
+ark-ec = { version = "0.4.0", default-features = false }
+ark-ff = { version = "0.4.0", default-features = false }
+ark-poly = { version = "0.4.0", default-features = false }
+ark-serialize = { version = "0.4.0", default-features = false }
 merlin = { version = "3", default-features = false }
 
 thiserror = { version = "1.0.37", optional = true }
 rayon = { version = "1.6", optional = true }
 
 blst = { version = "0.3.10", optional = true, features = [ "no-threads"], git = "https://github.com/aphoh/blst", rev = "556e037926d9c526c2eb6cb1522bea39690416ea" }
-ark-bls12-381 = { version = "0.4.0-alpha.2", optional = true }
+ark-bls12-381 = { version = "0.4.0", optional = true }
 
 [dev-dependencies]
-ark-bls12-381 = "0.4.0-alpha.2"
+ark-bls12-381 = "0.4.0"
 criterion = "0.4"
 rand = { version = "*", features = ["getrandom", "std"] }
 

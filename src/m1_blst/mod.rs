@@ -1,3 +1,4 @@
+//! An assemblby-optimized implementation of the BDFG21 and KZG10 algorithm for BLS12-381, using blst for most computations.
 use crate::{
     check_opening_sizes, check_verify_sizes, gen_curve_powers_proj,
     lagrange::LagrangeInterpContext,
@@ -23,8 +24,11 @@ pub mod fast_msm;
 mod kzg;
 pub mod precompute;
 
+/// Method 1, blst optimized, with no precomputation of lagrange polynomials
 pub struct M1NoPrecomp {
+    /// The given powers tau in G1
     pub powers_of_g1: Vec<G1>,
+    /// This contains a pure ark implementation of BDFG21 method 1
     pub powers_of_g2: Vec<G2>,
     prepped_g1s: p1_affines,
     prepped_g2s: p2_affines,
@@ -36,9 +40,11 @@ impl Clone for M1NoPrecomp {
     }
 }
 
+/// A method 1 proof
 pub type Proof = crate::method1::Proof<Bls12_381>;
 
 impl M1NoPrecomp {
+    /// Make a new scheme at random
     pub fn new(max_coeffs: usize, max_pts: usize, rng: &mut impl RngCore) -> Self {
         let x = Fr::rand(rng);
         let g1 = G1::rand(rng);
@@ -46,6 +52,7 @@ impl M1NoPrecomp {
         Self::new_from_scalar(x, g1, g2, max_coeffs, max_pts)
     }
 
+    /// Make a new scheme from the given secret scalar and generators
     pub fn new_from_scalar(x: Fr, g1: G1, g2: G2, max_coeffs: usize, max_pts: usize) -> Self {
         let n_g2_powers = max_pts + 1;
         let x_powers = gen_powers(x, core::cmp::max(max_coeffs, n_g2_powers));
@@ -56,6 +63,7 @@ impl M1NoPrecomp {
         Self::new_from_powers(powers_of_g1, powers_of_g2)
     }
 
+    /// Make a new scheme from the given affine powers
     pub fn new_from_affine(g1s: &[G1Affine], g2s: &[G2Affine]) -> Self {
         Self::new_from_powers(
             g1s.iter().map(|i| i.into_group()).collect::<Vec<_>>(),
@@ -63,6 +71,7 @@ impl M1NoPrecomp {
         )
     }
 
+    /// Make a new scheme from the given projective powers
     pub fn new_from_powers(powers_of_g1: Vec<G1>, powers_of_g2: Vec<G2>) -> Self {
         let prepped_g1s = fast_msm::prep_g1s(&powers_of_g1);
         let prepped_g2s = fast_msm::prep_g2s(&powers_of_g2);

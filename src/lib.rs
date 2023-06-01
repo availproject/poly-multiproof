@@ -1,6 +1,63 @@
 #![cfg_attr(not(feature = "std"), no_std)]
-#![warn(future_incompatible, nonstandard_style)]
+#![warn(future_incompatible, nonstandard_style, missing_docs)]
 #![cfg_attr(not(feature = "blst"), deny(unsafe_code))]
+//! ## `poly-multiproof`
+//! `poly-multiproof` is a library for generating BDFG21-esque proofs against standard KZG
+//! commitments. It supports both the method 1 and method 2 proofs from the paper, and contains
+//! an assembly-optimized implementation of method 1 for the BLS12-381 curve. When the points that
+//! will be committed to are known beforehand, separate `precompute` modules can be used which
+//! pre-compute lagrange polynomials and vanishing polynomials for the points, which can speed up
+//! proof generation by a significant amount, especially for larger proof sizes.
+//!
+//! ### Features
+//! * `blst` enables a specific `bls12-381` implementation which uses `blst` for curve msm.
+//! * `parallel` enables parallel computation for
+//!   * PMP setup generation
+//!   * operations in the `data_availability_grid` example
+//! * `print-trace` enables some tracing that shows the time certain things take to execute
+//!
+//! See [the `poly-multiproof` documentation](https://docs.rs/poly-multiproof) for more details.
+//!
+//! ### Examples
+//!
+//! An example of using pmp for a grid data availability scheme with 1d erasure encoding is in `examples/data_availability_grid.rs`. To run it with a nice timer, do
+//! ```bash
+//! cargo run --example data_availability_grid --release --features print-trace,blst,parallel
+//! ```
+//!
+//! which will print out something like this example for a 256x256 grid
+//! ```
+//! Start:   create pmp
+//! End:     create pmp ........................................330.880ms
+//! Start:   create grid
+//! ··Start:   erasure encoding columns
+//! ··End:     erasure encoding columns ........................32.143ms
+//! ··Start:   computing polynomials from evals
+//! ··End:     computing polynomials from evals ................22.562ms
+//! ··Start:   computing commitments
+//! ··End:     computing commitments ...........................707.127ms
+//! End:     create grid .......................................771.776ms
+//! Start:   opening to grid
+//! End:     opening to grid ...................................244.446ms
+//! Start:   verifying grid
+//! End:     verifying grid ....................................223.557ms
+//! ```
+//!
+//! There are nice constants in the top of the file to play with.
+//!
+//! ### Benchmarks
+//!
+//! To run benchmarks with `arkworks-rs` asm optimizations on x86 machines, run
+//! ```bash
+//! RUSTFLAGS="-C target-feature=+bmi2,+adx" cargo +nightly criterion --features asm
+//! ```
+//! or to run with the goal of plotting, run
+//! ```bash
+//! RUSTFLAGS="-C target-feature=+bmi2,+adx" cargo +nightly criterion --features asm --plotting-backend disabled -- --quick --quiet &> bench_out.txt
+//! ```
+//! The logs in `bench_out.txt` can then be parsed and plotted in `Plot Benches.ipynb`.
+//! Using `--quick` is nice since there are many many inputs benchmarked and it will still take an hour or so to run with `--quick`.
+//!
 use ark_ec::{pairing::Pairing, scalar_mul::fixed_base::FixedBase, CurveGroup, ScalarMul};
 use ark_ff::{Field, PrimeField};
 use ark_poly::{
@@ -22,7 +79,7 @@ pub use merlin;
 pub mod method1;
 pub mod method2;
 
-pub mod lagrange;
+pub(crate) mod lagrange;
 #[cfg(feature = "blst")]
 pub mod m1_blst;
 
@@ -31,40 +88,73 @@ pub mod traits;
 #[cfg(test)]
 pub mod testing;
 
+/// Crate error type
 #[derive(Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "std", derive(thiserror::Error))]
 pub enum Error {
+    /// Too many scalars were given. This normally happens when you initialize a `PMP` with too few
+    /// points for the degree of the polyomial you want to commit/open to.
     #[cfg_attr(feature = "std", error("Polynomial given is too large"))]
     TooManyScalars {
+        /// The number of scalars given
         n_coeffs: usize,
+        /// The maximum number of scalars expected
         expected_max: usize,
     },
+    /// Found a zero divisor when computing a polynomial quotient
     #[cfg_attr(feature = "std", error("A divisor was zero"))]
     DivisorIsZero,
+    /// No polynomials were given
     #[cfg_attr(feature = "std", error("Expected polynomials, none were given"))]
     NoPolynomialsGiven,
+    /// The evaluations given to a method did not match with the expected number for the size of
+    /// the polynomial.
     #[cfg_attr(feature = "std", error("Given evaluations were the incorrect size"))]
     EvalsIncorrectSize {
+        /// The index of the polynomial that had incorrect evals
         poly: usize,
-        n: usize,
+        /// The number of evals
+        n_evals: usize,
+        /// The expected number of evals
         expected: usize,
     },
+    /// Error serializing
     #[cfg_attr(feature = "std", error("Serialization error"))]
     SerializationError,
+    /// No points were given
     #[cfg_attr(feature = "std", error("Not given any points"))]
     NoPointsGiven,
+    /// Evals and polynomials had different sizes
     #[cfg_attr(
         feature = "std",
         error("Given {n_eval_rows} evaluations, but {n_polys} polynomials")
     )]
-    EvalsAndPolysDifferentSizes { n_eval_rows: usize, n_polys: usize },
+    EvalsAndPolysDifferentSizes {
+        /// The number of rows of evals
+        n_eval_rows: usize,
+        /// The number of polynomials
+        n_polys: usize,
+    },
+    /// Evals and points had different sizes
     #[cfg_attr(feature = "std", error("Given {n_points} points, but {n_evals} evals"))]
-    EvalsAndPointsDifferentSizes { n_points: usize, n_evals: usize },
+    EvalsAndPointsDifferentSizes {
+        /// The number of points
+        n_points: usize,
+        /// The number of eval rows
+        n_evals: usize,
+    },
+    /// Evals and commits had different sizes
     #[cfg_attr(
         feature = "std",
         error("Given {n_commits} commits, but {n_evals} evals")
     )]
-    EvalsAndCommitsDifferentSizes { n_evals: usize, n_commits: usize },
+    EvalsAndCommitsDifferentSizes {
+        /// The number of eval rows
+        n_evals: usize,
+        /// The number of commits
+        n_commits: usize,
+    },
+    /// Failed to construct a domain of the given size
     #[cfg_attr(feature = "std", error("Unable to construct a domain of size {0}"))]
     DomainConstructionFailed(usize),
 }
@@ -75,10 +165,13 @@ impl From<SerializationError> for Error {
     }
 }
 
+/// A KZG commitment, consisting of a single G1 group element
 #[derive(Debug, Clone, CanonicalSerialize, CanonicalDeserialize)]
 pub struct Commitment<E: Pairing>(pub E::G1Affine);
 
 impl<E: Pairing> Commitment<E> {
+    /// Given a set of commitments and a target output size that is a power of 2,
+    /// extend the commitments to the target size using FFTs.
     pub fn extend_commitments(
         commits: impl AsRef<[Commitment<E>]>,
         output_size: usize,
@@ -193,7 +286,7 @@ pub(crate) fn transcribe_points_and_evals<F: CanonicalSerialize>(
         if e.as_ref().len() != n_points {
             return Err(Error::EvalsIncorrectSize {
                 poly: i,
-                n: e.as_ref().len(),
+                n_evals: e.as_ref().len(),
                 expected: n_points,
             });
         }
@@ -277,6 +370,7 @@ pub(crate) fn check_verify_sizes<F, C>(
     Ok(())
 }
 
+/// This macro is used to iterate over a slice in parallel if the `parallel` feature is enabled.
 #[macro_export]
 macro_rules! cfg_iter {
     ($e: expr) => {{

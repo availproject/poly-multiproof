@@ -1,3 +1,4 @@
+//! Precomputation for method 1.
 use ark_poly::univariate::DensePolynomial;
 use merlin::Transcript;
 
@@ -12,8 +13,10 @@ use crate::lagrange::LagrangeInterpContext;
 use crate::traits::{Committer, PolyMultiProof};
 use crate::{cfg_iter, Commitment};
 
+/// Method 1 scheme with precomputed lagrange polynomials/vanishing polys
 #[derive(Clone, Debug)]
 pub struct M1Precomp<E: Pairing> {
+    /// The inner method 1 object without precomputation
     pub inner: super::M1NoPrecomp<E>,
     point_sets: Vec<Vec<E::ScalarField>>,
     vanishing_polys: Vec<DensePolynomial<E::ScalarField>>,
@@ -22,6 +25,7 @@ pub struct M1Precomp<E: Pairing> {
 }
 
 impl<E: Pairing> M1Precomp<E> {
+    /// Make a precompute-optimized version of a method 1 object for the given sets of points
     pub fn from_inner(
         inner: super::M1NoPrecomp<E>,
         point_sets: Vec<Vec<<E as Pairing>::ScalarField>>,

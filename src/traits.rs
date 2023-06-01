@@ -1,3 +1,4 @@
+//! Traits used in the BDFG21 and KZG Schemes
 use ark_ec::pairing::Pairing;
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::vec::Vec;
@@ -5,21 +6,30 @@ use merlin::Transcript;
 
 use crate::{Commitment, Error};
 
+/// A curve-agnostic trait for a KZG commitment scheme
 pub trait Committer<E: Pairing> {
+    /// Commit to the given polynomial
     fn commit(&self, poly: impl AsRef<[E::ScalarField]>) -> Result<Commitment<E>, Error>;
 }
 
+/// A curve-agnostic trait for making KZG opening proofs
 pub trait KZGProof<E: Pairing>: Sized {
+    /// The output proof type
     type Proof: Clone;
 
+    /// Compute the witness polynomial for a given point. This can be passed into `open` to create
+    /// a proof.
     fn compute_witness_polynomial(
         &self,
         poly: Vec<E::ScalarField>,
         point: E::ScalarField,
     ) -> Result<Vec<E::ScalarField>, Error>;
 
+    /// Creates a proof from a witness polynomial. This essentially commits to the witness
+    /// polynomial
     fn open(&self, witness_poly: Vec<E::ScalarField>) -> Result<Self::Proof, Error>;
 
+    /// Verifies a proof against a commitment
     fn verify(
         &self,
         commit: &crate::Commitment<E>,
@@ -29,9 +39,12 @@ pub trait KZGProof<E: Pairing>: Sized {
     ) -> Result<bool, crate::Error>;
 }
 
+/// A curve-agnostic trait for a BDFG commitment scheme *with precomputation*
 pub trait PolyMultiProof<E: Pairing>: Sized {
+    /// The output proof type
     type Proof: Clone;
 
+    /// Creates a of the given polynomials at the given point set index
     fn open(
         &self,
         transcript: &mut Transcript,
@@ -40,6 +53,7 @@ pub trait PolyMultiProof<E: Pairing>: Sized {
         point_set_index: usize,
     ) -> Result<Self::Proof, Error>;
 
+    /// Verifies a proof against the given set of commitments and points
     fn verify(
         &self,
         transcript: &mut Transcript,
@@ -50,9 +64,12 @@ pub trait PolyMultiProof<E: Pairing>: Sized {
     ) -> Result<bool, Error>;
 }
 
+/// A curve-agnostic trait for a BDFG commitment scheme *without precomputation*
 pub trait PolyMultiProofNoPrecomp<E: Pairing>: Sized {
+    /// The output proof type
     type Proof: Clone;
 
+    /// Creates a proof of the given polynomials and evals at the given points
     fn open(
         &self,
         transcript: &mut Transcript,
@@ -61,6 +78,7 @@ pub trait PolyMultiProofNoPrecomp<E: Pairing>: Sized {
         points: &[E::ScalarField],
     ) -> Result<Self::Proof, Error>;
 
+    /// Verifies a proof against the given set of commitments and points
     fn verify(
         &self,
         transcript: &mut Transcript,
@@ -71,8 +89,11 @@ pub trait PolyMultiProofNoPrecomp<E: Pairing>: Sized {
     ) -> Result<bool, Error>;
 }
 
+/// Utility trait for serialization and deserialization
 pub trait AsBytes<const N: usize>: Sized {
+    /// Convert to bytes
     fn to_bytes(&self) -> Result<[u8; N], Error>;
+    /// Convert from bytes
     fn from_bytes(bytes: &[u8; N]) -> Result<Self, Error>;
 }
 

@@ -1,3 +1,4 @@
+//! Precomputation for Method 1 with blst optimizations
 use ark_bls12_381::{Bls12_381, Fr, G2Projective as G2};
 use ark_poly::univariate::DensePolynomial;
 use ark_std::vec::Vec;
@@ -11,7 +12,9 @@ use crate::lagrange::LagrangeInterpContext;
 use crate::traits::{Committer, PolyMultiProof};
 use crate::{cfg_iter, Commitment};
 
+/// Method 1 with blst optimization and precomputed lagrange polynomials/vanishing polys
 pub struct M1Precomp {
+    /// The inner method 1 object without precomputation
     pub inner: super::M1NoPrecomp,
     point_sets: Vec<Vec<Fr>>,
     vanishing_polys: Vec<DensePolynomial<Fr>>,
@@ -20,6 +23,7 @@ pub struct M1Precomp {
 }
 
 impl M1Precomp {
+    /// Make a precompute-optimized version of a method 1 object for the given sets of points
     pub fn from_inner(inner: super::M1NoPrecomp, point_sets: Vec<Vec<Fr>>) -> Result<Self, Error> {
         let vanishing_polys: Vec<_> = cfg_iter!(point_sets)
             .map(|(_, ps)| vanishing_polynomial(ps))

@@ -1,3 +1,4 @@
+//! Various fast multi-scalar multiplication methods using blst assembly
 use ark_bls12_381::{G1Projective, G2Projective};
 use ark_ff::{BigInt, Zero};
 use ark_serialize::CanonicalSerialize;
@@ -48,6 +49,7 @@ fn convert_g2_affine(q: ark_bls12_381::G2Affine) -> blst_p2_affine {
     }
 }
 
+/// Check that two pairings are equal by doing two miller loops and a single final exponentiation
 // TODO: this should really be checked by someone who understands the blst lib
 pub fn check_pairings_equal(
     p1: ark_bls12_381::G1Affine,
@@ -80,6 +82,7 @@ pub fn check_pairings_equal(
     }
 }
 
+/// Compute a pairing
 pub fn pairing(p: ark_bls12_381::G1Affine, q: ark_bls12_381::G2Affine) -> ark_bls12_381::Fq12 {
     let bp = convert_g1_affine(p);
     let bq = convert_g2_affine(q);
