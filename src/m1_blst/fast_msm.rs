@@ -1,11 +1,10 @@
 //! Various fast multi-scalar multiplication methods using blst assembly
-use ark_bls12_381::{G1Projective, G2Projective};
 use ark_ff::{BigInt, Zero};
 use ark_serialize::CanonicalSerialize;
 use ark_std::{vec, vec::Vec};
 use blst::{
-    blst_fp, blst_fp2, blst_p1, blst_p1_affine, blst_p1_from_affine, blst_p1_mult, blst_p2,
-    blst_p2_affine, blst_p2_from_affine, blst_p2_mult, p1_affines, p2_affines,
+    blst_fp, blst_fp2, blst_p1, blst_p1_affine, blst_p1_mult, blst_p2, blst_p2_affine,
+    blst_p2_mult, p1_affines, p2_affines,
 };
 use core::marker::PhantomData;
 
@@ -140,12 +139,127 @@ fn convert_g2_slice(points: &[ark_bls12_381::G2Projective]) -> Vec<blst_p2> {
     points.iter().map(convert_g2).collect()
 }
 
-pub(crate) fn prep_g1s(points: &[ark_bls12_381::G1Projective]) -> p1_affines {
-    p1_affines::from(&convert_g1_slice(points))
+pub(crate) struct P1Affines {
+    first: Option<blst_p1>,
+    all: Option<p1_affines>,
+    len: usize,
 }
 
-pub(crate) fn prep_g2s(points: &[ark_bls12_381::G2Projective]) -> p2_affines {
-    p2_affines::from(&convert_g2_slice(points))
+impl<T: AsRef<[ark_bls12_381::G1Projective]>> From<T> for P1Affines {
+    fn from(value: T) -> Self {
+        let len = value.as_ref().len();
+        if len == 0 {
+            return Self {
+                first: None,
+                all: None,
+                len: 0,
+            };
+        }
+        Self {
+            first: value.as_ref().get(0).map(|p| convert_g1(p)),
+            all: Some(p1_affines::from(&convert_g1_slice(value.as_ref()))),
+            len: value.as_ref().len(),
+        }
+    }
+}
+
+impl P1Affines {
+    pub fn msm(
+        &self,
+        mut scalars: &[ark_bls12_381::Fr],
+    ) -> Result<ark_bls12_381::G1Projective, Error> {
+        scalars = trim_zeros(scalars);
+        check_scalars(scalars, self.len)?;
+        if scalars.len() == 0 || self.len == 0 {
+            return Ok(Zero::zero());
+        }
+        let scalars_le = prep_scalars(scalars);
+        let res_p1 = if scalars.len() == 1 {
+            let mut out = blst_p1::default();
+            unsafe {
+                blst_p1_mult(
+                    &mut out as *mut blst_p1,
+                    &self.first.expect("len != 0"),
+                    scalars_le.as_ptr(),
+                    255,
+                )
+            }
+            out
+        } else {
+            self.all.as_ref().expect("len != 0").mult(&scalars_le, 255)
+        };
+        Ok(ark_bls12_381::G1Projective {
+            x: ark_ff::Fp(BigInt(res_p1.x.l), PhantomData),
+            y: ark_ff::Fp(BigInt(res_p1.y.l), PhantomData),
+            z: ark_ff::Fp(BigInt(res_p1.z.l), PhantomData),
+        })
+    }
+}
+
+pub(crate) struct P2Affines {
+    first: Option<blst_p2>,
+    all: Option<p2_affines>,
+    len: usize,
+}
+
+impl<T: AsRef<[ark_bls12_381::G2Projective]>> From<T> for P2Affines {
+    fn from(value: T) -> Self {
+        let len = value.as_ref().len();
+        if len == 0 {
+            return Self {
+                first: None,
+                all: None,
+                len: 0,
+            };
+        }
+        Self {
+            first: value.as_ref().get(0).map(|p| convert_g2(p)),
+            all: Some(p2_affines::from(&convert_g2_slice(value.as_ref()))),
+            len: value.as_ref().len(),
+        }
+    }
+}
+
+impl P2Affines {
+    pub fn msm(
+        &self,
+        mut scalars: &[ark_bls12_381::Fr],
+    ) -> Result<ark_bls12_381::G2Projective, Error> {
+        scalars = trim_zeros(scalars);
+        check_scalars(scalars, self.len)?;
+        if scalars.len() == 0 || self.len == 0 {
+            return Ok(Zero::zero());
+        }
+        let scalars_le = prep_scalars(scalars);
+        let res_p2 = if scalars.len() == 1 {
+            let mut out = blst_p2::default();
+            unsafe {
+                blst_p2_mult(
+                    &mut out as *mut blst_p2,
+                    &self.first.expect("len != 0"),
+                    scalars_le.as_ptr(),
+                    255,
+                )
+            }
+            out
+        } else {
+            self.all.as_ref().expect("len > 0").mult(&scalars_le, 255)
+        };
+        Ok(ark_bls12_381::G2Projective {
+            x: ark_ff::QuadExtField {
+                c0: ark_ff::Fp(BigInt(res_p2.x.fp[0].l), PhantomData),
+                c1: ark_ff::Fp(BigInt(res_p2.x.fp[1].l), PhantomData),
+            },
+            y: ark_ff::QuadExtField {
+                c0: ark_ff::Fp(BigInt(res_p2.y.fp[0].l), PhantomData),
+                c1: ark_ff::Fp(BigInt(res_p2.y.fp[1].l), PhantomData),
+            },
+            z: ark_ff::QuadExtField {
+                c0: ark_ff::Fp(BigInt(res_p2.z.fp[0].l), PhantomData),
+                c1: ark_ff::Fp(BigInt(res_p2.z.fp[1].l), PhantomData),
+            },
+        })
+    }
 }
 
 fn prep_scalars(scalars: &[ark_bls12_381::Fr]) -> Vec<u8> {
@@ -158,104 +272,14 @@ fn prep_scalars(scalars: &[ark_bls12_381::Fr]) -> Vec<u8> {
     scalars_le
 }
 
-/// Do a fast g1 msm. The number of scalars must be less than the number of points.
-pub(crate) fn g1_msm(
-    g1s: &p1_affines,
-    mut scalars: &[ark_bls12_381::Fr],
-    g1s_len: usize,
-) -> Result<ark_bls12_381::G1Projective, Error> {
-    if scalars.len() == 0 {
-        return Ok(G1Projective::zero());
-    }
-    if g1s_len < scalars.len() {
+fn check_scalars(scalars: &[ark_bls12_381::Fr], point_len: usize) -> Result<(), Error> {
+    if point_len < scalars.len() {
         return Err(Error::TooManyScalars {
             n_coeffs: scalars.len(),
-            expected_max: g1s_len,
+            expected_max: point_len,
         });
     }
-    scalars = trim_zeros(scalars);
-    if scalars.len() == 0 {
-        return Ok(Zero::zero());
-    }
-
-    let scalars_le = prep_scalars(&scalars);
-    let res_p1 = if scalars.len() == 1 {
-        let pt_affine = g1s.points[0];
-        let mut out = blst_p1::default();
-        let mut pt = blst_p1::default();
-        unsafe {
-            blst_p1_from_affine(&mut pt as *mut blst_p1, &pt_affine as *const blst_p1_affine);
-            blst_p1_mult(
-                &mut out as *mut blst_p1,
-                &pt as *const blst_p1,
-                scalars_le.as_ptr(),
-                255,
-            )
-        }
-        out
-    } else {
-        let scalars_le = prep_scalars(&scalars);
-        g1s.mult(&scalars_le, 255)
-    };
-    Ok(ark_bls12_381::G1Projective {
-        x: ark_ff::Fp(BigInt(res_p1.x.l), PhantomData),
-        y: ark_ff::Fp(BigInt(res_p1.y.l), PhantomData),
-        z: ark_ff::Fp(BigInt(res_p1.z.l), PhantomData),
-    })
-}
-
-/// Do a fast g2 msm. The number of scalars must be less than the number of points.
-pub(crate) fn g2_msm(
-    g2s: &p2_affines,
-    mut scalars: &[ark_bls12_381::Fr],
-    g2s_len: usize,
-) -> Result<ark_bls12_381::G2Projective, Error> {
-    if scalars.len() == 0 {
-        return Ok(G2Projective::zero());
-    }
-    if g2s_len < scalars.len() {
-        return Err(Error::TooManyScalars {
-            n_coeffs: scalars.len(),
-            expected_max: g2s_len,
-        });
-    }
-    scalars = trim_zeros(scalars);
-    if scalars.len() == 0 {
-        return Ok(Zero::zero());
-    }
-
-    let scalars_le = prep_scalars(&scalars);
-    let res_p2 = if scalars.len() == 1 {
-        let pt_affine = g2s.points[0];
-        let mut out = blst_p2::default();
-        let mut pt = blst_p2::default();
-        unsafe {
-            blst_p2_from_affine(&mut pt as *mut blst_p2, &pt_affine as *const blst_p2_affine);
-            blst_p2_mult(
-                &mut out as *mut blst_p2,
-                &pt as *const blst_p2,
-                scalars_le.as_ptr(),
-                255,
-            )
-        }
-        out
-    } else {
-        g2s.mult(&scalars_le, 255)
-    };
-    Ok(ark_bls12_381::G2Projective {
-        x: ark_ff::QuadExtField {
-            c0: ark_ff::Fp(BigInt(res_p2.x.fp[0].l), PhantomData),
-            c1: ark_ff::Fp(BigInt(res_p2.x.fp[1].l), PhantomData),
-        },
-        y: ark_ff::QuadExtField {
-            c0: ark_ff::Fp(BigInt(res_p2.y.fp[0].l), PhantomData),
-            c1: ark_ff::Fp(BigInt(res_p2.y.fp[1].l), PhantomData),
-        },
-        z: ark_ff::QuadExtField {
-            c0: ark_ff::Fp(BigInt(res_p2.z.fp[0].l), PhantomData),
-            c1: ark_ff::Fp(BigInt(res_p2.z.fp[1].l), PhantomData),
-        },
-    })
+    Ok(())
 }
 
 fn trim_zeros(mut scalars: &[ark_bls12_381::Fr]) -> &[ark_bls12_381::Fr] {
@@ -288,11 +312,12 @@ mod tests {
             .collect::<Vec<_>>();
 
         fn run(err: bool, g1s: &[ark_bls12_381::G1Projective], scalars: &[ark_bls12_381::Fr]) {
-            let pg1 = prep_g1s(&g1s);
-            let res = g1_msm(&pg1, &scalars, g1s.len());
+            let pg1 = P1Affines::from(g1s);
+            let res = pg1.msm(&scalars);
             assert_eq!(res.is_err(), err);
         }
 
+        run(true, &[], scalars[0..2].as_ref());
         run(true, g1s[0..1].as_ref(), scalars[0..2].as_ref());
         run(true, g1s[0..10].as_ref(), scalars[0..20].as_ref());
         run(true, g1s[0..19].as_ref(), scalars[0..20].as_ref());
@@ -311,11 +336,11 @@ mod tests {
             .map(|_| ark_bls12_381::Fr::rand(&mut thread_rng()))
             .collect::<Vec<_>>();
 
-        let pg1 = prep_g1s(&g1s);
-        let pg2 = prep_g2s(&g2s);
+        let pg1 = P1Affines::from(&g1s);
+        let pg2 = P2Affines::from(&g2s);
 
-        let res1 = g1_msm(&pg1, &scalars, g1s.len()).unwrap();
-        let res2 = g2_msm(&pg2, &scalars, g2s.len()).unwrap();
+        let res1 = pg1.msm(&scalars).unwrap();
+        let res2 = pg2.msm(&scalars).unwrap();
 
         let g1s_affine = g1s.iter().map(|p| p.into_affine()).collect::<Vec<_>>();
         let g2s_affine = g2s.iter().map(|p| p.into_affine()).collect::<Vec<_>>();
@@ -333,11 +358,11 @@ mod tests {
         let g2s = vec![ark_bls12_381::G2Projective::rand(&mut thread_rng())];
         let scalars = vec![ark_bls12_381::Fr::rand(&mut thread_rng())];
 
-        let pg1 = prep_g1s(&g1s);
-        let pg2 = prep_g2s(&g2s);
+        let pg1 = P1Affines::from(&g1s);
+        let pg2 = P2Affines::from(&g2s);
 
-        let res1 = g1_msm(&pg1, &scalars, g1s.len()).unwrap();
-        let res2 = g2_msm(&pg2, &scalars, g2s.len()).unwrap();
+        let res1 = pg1.msm(&scalars).unwrap();
+        let res2 = pg2.msm(&scalars).unwrap();
 
         let g1s_affine = g1s.iter().map(|p| p.into_affine()).collect::<Vec<_>>();
         let g2s_affine = g2s.iter().map(|p| p.into_affine()).collect::<Vec<_>>();
@@ -354,11 +379,11 @@ mod tests {
         let g1s = vec![G1Projective::rand(&mut thread_rng())];
         let g2s = vec![G2Projective::rand(&mut thread_rng())];
 
-        let pg1 = prep_g1s(&g1s);
-        let pg2 = prep_g2s(&g2s);
+        let pg1 = P1Affines::from(&g1s);
+        let pg2 = P2Affines::from(&g2s);
 
-        assert_eq!(Ok(G1Projective::zero()), g1_msm(&pg1, &[], g1s.len()));
-        assert_eq!(Ok(G2Projective::zero()), g2_msm(&pg2, &[], g2s.len()));
+        assert_eq!(Ok(G1Projective::zero()), pg1.msm(&[]));
+        assert_eq!(Ok(G2Projective::zero()), pg2.msm(&[]));
     }
 
     #[test]
@@ -370,12 +395,15 @@ mod tests {
             .map(|_| G2Projective::rand(&mut thread_rng()))
             .collect::<Vec<_>>();
 
-        let pg1 = prep_g1s(&g1s);
-        let pg2 = prep_g2s(&g2s);
+        let pg1 = P1Affines::from(&g1s);
+        let pg2 = P2Affines::from(&g2s);
 
         let scalars = vec![Zero::zero(); 10];
-        assert_eq!(Ok(G1Projective::zero()), g1_msm(&pg1, &scalars, g1s.len()));
-        assert_eq!(Ok(G2Projective::zero()), g2_msm(&pg2, &scalars, g2s.len()));
+        let res1 = pg1.msm(&scalars);
+        let res2 = pg2.msm(&scalars);
+
+        assert_eq!(Ok(G1Projective::zero()), res1);
+        assert_eq!(Ok(G2Projective::zero()), res2);
     }
 
     #[test]

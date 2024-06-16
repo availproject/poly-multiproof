@@ -7,7 +7,7 @@ use merlin::Transcript;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-use super::{fast_msm, vanishing_polynomial, Error, Proof};
+use super::{vanishing_polynomial, Error, Proof};
 use crate::lagrange::LagrangeInterpContext;
 use crate::traits::{Committer, PolyMultiProof};
 use crate::{cfg_iter, Commitment};
@@ -29,7 +29,7 @@ impl M1Precomp {
             .map(|(_, ps)| vanishing_polynomial(ps))
             .collect();
         let g2_zeros = cfg_iter!(vanishing_polys)
-            .map(|(_, p)| fast_msm::g2_msm(&inner.prepped_g2s, &p, inner.powers_of_g2.len()))
+            .map(|(_, p)| inner.prepped_g2s.msm(&p))
             .collect::<Result<Vec<_>, Error>>()?;
         let lagrange_ctxs = cfg_iter!(point_sets)
             .map(|(_, ps)| LagrangeInterpContext::new_from_points(ps.as_ref()))

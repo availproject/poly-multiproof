@@ -6,7 +6,7 @@ use crate::{
 };
 use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial};
 use ark_std::{vec::Vec, UniformRand};
-use blst::{p1_affines, p2_affines};
+use fast_msm::{P1Affines, P2Affines};
 use merlin::Transcript;
 
 use ark_ec::{AffineRepr, CurveGroup};
@@ -30,8 +30,8 @@ pub struct M1NoPrecomp {
     pub powers_of_g1: Vec<G1>,
     /// This contains a pure ark implementation of BDFG21 method 1
     pub powers_of_g2: Vec<G2>,
-    prepped_g1s: p1_affines,
-    prepped_g2s: p2_affines,
+    prepped_g1s: P1Affines,
+    prepped_g2s: P2Affines,
 }
 
 impl Clone for M1NoPrecomp {
@@ -73,8 +73,8 @@ impl M1NoPrecomp {
 
     /// Make a new scheme from the given projective powers
     pub fn new_from_powers(powers_of_g1: Vec<G1>, powers_of_g2: Vec<G2>) -> Self {
-        let prepped_g1s = fast_msm::prep_g1s(&powers_of_g1);
-        let prepped_g2s = fast_msm::prep_g2s(&powers_of_g2);
+        let prepped_g1s = P1Affines::from(&powers_of_g1);
+        let prepped_g2s = P2Affines::from(&powers_of_g2);
         Self {
             powers_of_g1,
             powers_of_g2,
@@ -112,7 +112,7 @@ impl M1NoPrecomp {
         )?;
         // Open to the resulting polynomial
         Ok(Proof {
-            0: fast_msm::g1_msm(&self.prepped_g1s, &q, self.powers_of_g1.len())?.into_affine(),
+            0: self.prepped_g1s.msm(&q)?.into_affine(),
         })
     }
 
@@ -137,13 +137,12 @@ impl M1NoPrecomp {
         // Get the gamma^i r_i polynomials with lagrange interp. This does both the lagrange interp
         // and the gamma mul in one step so we can just lagrange interp once.
         let gamma_ris = lag_ctx.lagrange_interp_linear_combo(evals, &gammas)?.coeffs;
-        let gamma_ris_pt =
-            fast_msm::g1_msm(&self.prepped_g1s, &gamma_ris, self.powers_of_g1.len())?;
+        let gamma_ris_pt = self.prepped_g1s.msm(&gamma_ris)?;
 
         // Then do a single msm of the gammas and commitments
         let cms = commits.iter().map(|i| i.0.into_group()).collect::<Vec<_>>();
-        let cms_prep = fast_msm::prep_g1s(&cms.as_slice());
-        let gamma_cm_pt = fast_msm::g1_msm(&cms_prep, &gammas, cms.len())?;
+        let cms_prep: P1Affines = cms.into();
+        let gamma_cm_pt = cms_prep.msm(&gammas)?;
 
         let g2 = self.powers_of_g2[0];
 
@@ -157,7 +156,7 @@ impl M1NoPrecomp {
 
 impl Committer<Bls12_381> for M1NoPrecomp {
     fn commit(&self, poly: impl AsRef<[Fr]>) -> Result<Commitment<Bls12_381>, Error> {
-        let res = fast_msm::g1_msm(&self.prepped_g1s, poly.as_ref(), self.powers_of_g1.len())?;
+        let res = self.prepped_g1s.msm(poly.as_ref())?;
         Ok(Commitment(res.into_affine()))
     }
 }
@@ -185,7 +184,7 @@ impl PolyMultiProofNoPrecomp<Bls12_381> for M1NoPrecomp {
         proof: &Proof,
     ) -> Result<bool, Error> {
         let vp = vanishing_polynomial(points);
-        let g2_zeros = fast_msm::g2_msm(&self.prepped_g2s, &vp, self.powers_of_g2.len())?;
+        let g2_zeros = self.prepped_g2s.msm(&vp)?;
         let lag_ctx = LagrangeInterpContext::new_from_points(points)?;
         self.verify_with_lag_ctx_g2_zeros(
             transcript, commits, points, evals, proof, &lag_ctx, &g2_zeros,
