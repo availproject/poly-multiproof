@@ -26,7 +26,7 @@
 //! ```
 //!
 //! which will print out something like this example for a 256x256 grid
-//! ```
+//! ```bash
 //! Start:   create pmp
 //! End:     create pmp ........................................330.880ms
 //! Start:   create grid
