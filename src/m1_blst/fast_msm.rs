@@ -1,10 +1,11 @@
 //! Various fast multi-scalar multiplication methods using blst assembly
+use ark_ec::CurveGroup;
 use ark_ff::{BigInt, Zero};
 use ark_serialize::CanonicalSerialize;
 use ark_std::{vec, vec::Vec};
 use blst::{
     blst_fp, blst_fp2, blst_p1, blst_p1_affine, blst_p1_mult, blst_p2, blst_p2_affine,
-    blst_p2_mult, p1_affines, p2_affines,
+    blst_p2_mult, MultiPoint,
 };
 use core::marker::PhantomData;
 
@@ -131,17 +132,25 @@ pub fn pairing(p: ark_bls12_381::G1Affine, q: ark_bls12_381::G2Affine) -> ark_bl
     }
 }
 
-fn convert_g1_slice(points: &[ark_bls12_381::G1Projective]) -> Vec<blst_p1> {
-    points.iter().map(convert_g1).collect()
+fn convert_g1_slice(points: &[ark_bls12_381::G1Projective]) -> Vec<blst_p1_affine> {
+    points
+        .iter()
+        .map(|a| a.into_affine())
+        .map(convert_g1_affine)
+        .collect()
 }
 
-fn convert_g2_slice(points: &[ark_bls12_381::G2Projective]) -> Vec<blst_p2> {
-    points.iter().map(convert_g2).collect()
+fn convert_g2_slice(points: &[ark_bls12_381::G2Projective]) -> Vec<blst_p2_affine> {
+    points
+        .iter()
+        .map(|a| a.into_affine())
+        .map(convert_g2_affine)
+        .collect()
 }
 
 pub(crate) struct P1Affines {
     first: Option<blst_p1>,
-    all: Option<p1_affines>,
+    all: Vec<blst_p1_affine>,
     len: usize,
 }
 
@@ -151,13 +160,13 @@ impl<T: AsRef<[ark_bls12_381::G1Projective]>> From<T> for P1Affines {
         if len == 0 {
             return Self {
                 first: None,
-                all: None,
+                all: Default::default(),
                 len: 0,
             };
         }
         Self {
             first: value.as_ref().get(0).map(|p| convert_g1(p)),
-            all: Some(p1_affines::from(&convert_g1_slice(value.as_ref()))),
+            all: convert_g1_slice(value.as_ref()),
             len: value.as_ref().len(),
         }
     }
@@ -186,7 +195,8 @@ impl P1Affines {
             }
             out
         } else {
-            self.all.as_ref().expect("len != 0").mult(&scalars_le, 255)
+            let a: &[blst_p1_affine] = &self.all[..scalars.len()];
+            a.mult(&scalars_le, 255)
         };
         Ok(ark_bls12_381::G1Projective {
             x: ark_ff::Fp(BigInt(res_p1.x.l), PhantomData),
@@ -198,7 +208,7 @@ impl P1Affines {
 
 pub(crate) struct P2Affines {
     first: Option<blst_p2>,
-    all: Option<p2_affines>,
+    all: Vec<blst_p2_affine>,
     len: usize,
 }
 
@@ -208,13 +218,13 @@ impl<T: AsRef<[ark_bls12_381::G2Projective]>> From<T> for P2Affines {
         if len == 0 {
             return Self {
                 first: None,
-                all: None,
+                all: Default::default(),
                 len: 0,
             };
         }
         Self {
             first: value.as_ref().get(0).map(|p| convert_g2(p)),
-            all: Some(p2_affines::from(&convert_g2_slice(value.as_ref()))),
+            all: convert_g2_slice(value.as_ref()),
             len: value.as_ref().len(),
         }
     }
@@ -243,7 +253,8 @@ impl P2Affines {
             }
             out
         } else {
-            self.all.as_ref().expect("len > 0").mult(&scalars_le, 255)
+            let a: &[blst_p2_affine] = &self.all[..scalars.len()];
+            a.mult(&scalars_le, 255)
         };
         Ok(ark_bls12_381::G2Projective {
             x: ark_ff::QuadExtField {

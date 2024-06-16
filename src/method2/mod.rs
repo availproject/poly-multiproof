@@ -76,7 +76,7 @@ impl<E: Pairing> M2NoPrecomp<E> {
     }
 }
 
-/// A proof for method 2 
+/// A proof for method 2
 #[derive(Clone, Debug, CanonicalSerialize, CanonicalDeserialize)]
 pub struct Proof<E: Pairing>(pub E::G1Affine, pub E::G1Affine);
 

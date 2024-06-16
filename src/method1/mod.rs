@@ -35,7 +35,7 @@ pub struct M1NoPrecomp<E: Pairing> {
 pub struct Proof<E: Pairing>(pub E::G1Affine);
 
 impl<E: Pairing> M1NoPrecomp<E> {
-    /// Make a new random scheme 
+    /// Make a new random scheme
     pub fn new(max_coeffs: usize, max_pts: usize, rng: &mut impl RngCore) -> Self {
         let x = E::ScalarField::rand(rng);
         let g1 = E::G1::rand(rng);
