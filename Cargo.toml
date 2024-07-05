@@ -22,8 +22,10 @@ ark-bls12-381 = { version = "0.4.0", optional = true }
 
 [dev-dependencies]
 ark-bls12-381 = "0.4.0"
-criterion = "0.4"
+divan = "0.1.14"
 rand = { version = "*", features = ["getrandom", "std"] }
+lazy_static = "1.5.0"
+rayon = "1.10.0"
 
 [features]
 default = ["std", "blst"]
@@ -33,6 +35,9 @@ print-trace = ["ark-std/print-trace"]
 debug-transcript = ["std", "merlin/debug-transcript"]
 blst = ["dep:blst", "ark-bls12-381"]
 parallel = ["rayon", "std"]
+
+[lib]
+bench = false
 
 [[bench]]
 name = "bench"
