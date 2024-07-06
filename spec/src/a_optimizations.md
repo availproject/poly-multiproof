@@ -1,12 +1,12 @@
 # A. Optimizations
 This contains all the optimizations made from the methods of BDFG21 and why they are correct. Please read the paper first 😘. 
 ## Method 1
-This method is the fastest method for opening, and slightly slower for verification than Method 2. But, as written in the paper, verification is impractically slow for any appreciable number of polynomials/points. So here, we make an assumption to make the computation reasonable: each polynomial is opened at all the same points, that is (using the notation from the paper) $S_i = S_j = T \;\forall i,j \in [k]$
+This method is the fastest method for opening, and slightly slower for verification than Method 2. But, as written in the paper, verification is impractically slow for any appreciable number of polynomials/points. So here, we make an assumption to make the computation reasonable: each polynomial in $F = \{ f_1, \ldots, f_N \}$ is opened at all the same points, that is (using the notation from the paper) $S_i = S_j = T \;\forall i,j \in [k]$. We also assume each polynomial $f_i$ is the same degree, $d$.
 
 ### Method 1, Opening
 Let $T = \{ z_1, z_2, \ldots z_t\}$. For brevity, assume sums over $i$ are done as $\sum_{i \in [k]}$
 
-The prover has to compute, $[h(x)]_1$, which means they must compute the coefficients of $h$ and then do $d+1$  $\mathbb{G}_1$ scalar multiplications and some addition. $h$ is defined as
+The prover has to compute, $[h(x)]_1$, which means they must compute the coefficients of $h$ and then do $d+1 - |T|$  $\mathbb{G}_1$ scalar multiplications and some addition. $h$ is defined as
 $$
 h(X) := \sum_i \gamma^{i-1} \frac{f_i(X) - r_i(X)}{Z_{S_i}(X)} = \frac{\sum_i \gamma^{i-1} \left( f_i(X) - r_i(X) \right)}{Z_T(X)}
 $$
@@ -37,20 +37,26 @@ F :&=\prod_i e(\gamma^{i-1} (c_i [r_i(x)]_1), Z_i) \\
 $$
 Constraining the points lets them compute a single pairing instead of $k$! Now let's look at each side of pairing. 
 To compute the LHS, they need to compute $\sum_i \gamma^{i-1} r_i$. Sadly, there's no nice way around this here, it must be interpolated, but they can interpolate $\sum_i \gamma^{i-1} r_i$ once rather than interpolate each $r_i$.
-By splitting the sum here, they can just do $2|T|$ $\mathbb{G}_1$ scalar multiplications: $|T|$ in $\sum\gamma^{i-1} c_i$ and $|T|$ in $\left[ \sum_i \gamma^{i-1} r_i(x) \right]_1$ (since each $r_i$ is of degree at most $|T|$).
+That leaves us with
+
+- $\sum\gamma^{i-1} c_i \rightarrow$ $N$ $\mathbb{G}_1$ scalar mults
+
+- $\left[ \sum_i \gamma^{i-1} r_i(x) \right]_1 \rightarrow$ $|T| + 1$ $\mathbb{G}_1$ scalar mults
 
 Then all they're left with is the single pairing.
 Next they have to compute $e(W, [Z_T(x)]_2)$. Computing $Z_T$ is pretty straightforward, and all they are left to do is the $d$ $\mathbb{G}_2$ scalar multiplications.
+If you already know your $T$ ahead of time, the $Z_T$ term can be cached.
 
 This leaves us with the following amount of operations (other operations impact runtime fairly little)
 
-| Operation                | Open quantity | Verify quantity     |
-| ------------------------ | ------------- | ------------------- |
-| Polynomial Interpolation | 0             | 1                   |
-| G1 Scalar Multiplication | d             | $2|T|$              |
-| G2 Scalar Multipcication | 0             | $d$ (can be cached) |
-| Pairing                  | 0             | 2                   | 
+| Operation                | Open quantity              | Verify quantity     |
+| ------------------------ | -------------------------- | ------------------- |
+| Polynomial Interpolation | 0                          | 1                   |
+| G1 Scalar Multiplication | $d + 1 - |T|$              | $N + T + 1$         |
+| G2 Scalar Multipcication | 0                          | $d$ (can be cached) |
+| Pairing                  | 0                          | 2                   | 
 
+Interestingly, the opening time gets smaller as the size of $T$ grows, due to the growing degree of the vanishing polynomial.
 
 # Method 2
 Method 2 is an equally secure way to generate blocked openings, which biases computation slightly more to the opener than the verifer. They use the same assumptions as in Method 1.
@@ -63,19 +69,24 @@ f(X) := \sum_i \gamma^{i-1} Z_{T \setminus S_i}(X) (f_i(X) - r_i(X)) = \sum_i \g
 $$
 since $T \setminus S_i = \emptyset$ so $Z_{T \setminus S_i} = 1$. 
 This looks very familiar from method 1! Here they just compute $Z_T$ then compute the quotient $f / Z_T$ and for now, ignore the remainder. Then they compute $W := [h(x)]_1$.
+This is $\deg(h) + 1 = d - |T| + 1$ $\mathbb{G}_1$ scalar multiplications.
 
 This method has additional challenge other than $\gamma$, called $z$ which must take into account $W$. After seeing $W$, the verifier sends a $z \in \mathbb{F}$. In reality this should be abstracted away using a Fiat-Shamir transform.
 
 The prover then computes $L(X) := f_z(X) - Z_T(z)h(X)$ for
 $$
 \begin{align}
-f_z(X) :&= \sum_i \gamma^{i-1} Z_{T\S_i}(z) (f_i(X) - r_i(z)) \\
+f_z(X) :&= \sum_i \gamma^{i-1} Z_{T\setminus S_i}(z) (f_i(X) - r_i(z)) \\
 	   &= \sum_i \gamma^{i-1} f_i(X) - \sum_i \gamma^{i-1} r_i(z)
 \end{align}
 $$
 
 Here we notice that we have already computed $\sum_i \gamma^{i-1} r_i(X)$ when we computed the remainder of $f / Z_T$. All they have to do is take this remainder, evaluate it at $z$, and then subtract it from $\sum_i \gamma^{i-1} f_i(X)$. 
-They then evaluate $Z_T(z)$, compute  $L(X) := f_z(X) - Z_T(z) h(X)$, then compute the polynomial $\frac{L(X)}{x-z}$ and evaluate $W' := \left[\frac{L(X)}{x-z}\right]_1$, which involves $d$ $\mathbb{G}_1$ scalar multiplications. The proof then consists of $(W, W')$. 
+They then evaluate $Z_T(z)$, compute  $L(X) := f_z(X) - Z_T(z) h(X)$, then compute the polynomial $\frac{L(X)}{x-z}$ and evaluate $W' := \left[\frac{L(X)}{x-z}\right]_1$.
+
+Here, $L(X)$ is of degree $d$, so computing $W'$ involves $d$ $\mathbb{G}_1$ scalar multiplications.
+
+The proof then consists of $(W, W')$. 
 
 ### Method 2, Verification
 
@@ -87,23 +98,23 @@ F :&= -Z_T(z) W + \sum_i \gamma^{i-1} Z_{T\setminus S_i}(z) (c_i - [r_i(z)]_1) \
  &= -Z_T(z) W + \sum_i \gamma^{i-1} c_i - \left[\sum_i \gamma^{i-1} r_i(z)\right]_1) \\
 \end{align}
 $$
-To do this, they do lagrange interpolation of  $\sum_i \gamma^{i-1} r_i(X)$, evaluate it at $z$, then do the single $\mathbb{G}_1$ scalar multiplication. Computing $\sum_i \gamma^{i-1} c_i$ is $|T|$ $\mathbb{G_1}$ scalar multiplications, and one more for computing $-Z_T(z) W$.
+To do this, they do lagrange interpolation of  $\sum_i \gamma^{i-1} r_i(X)$, evaluate it at $z$, then do the single $\mathbb{G}_1$ scalar multiplication. Computing $\sum_i \gamma^{i-1} c_i$ is $N$ $\mathbb{G_1}$ scalar multiplications, and one more for computing $-Z_T(z) W$.
 Next the verifier checks
 $e(F, g_2) = e(W', [x-z]_2)$
 Which involves 2 pairings, and 2 $\mathbb{G_2}$ scalar multiplications, yielding
 
-| Operation                | Open quantity | Verify quantity |
-| ------------------------ | ------------- | --------------- |
-| Polynomial Interpolation | 0             | $1$             |
-| G1 Scalar Multiplication | $2d$          | $2 + |T|$       |
-| G2 Scalar Multipcication | 0             | $2$             |
-| Pairing                  | 0             | $2$             |
+| Operation                | Open quantity   | Verify quantity |
+| ------------------------ | -------------   | --------------- |
+| Polynomial Interpolation | 0               | $1$             |
+| G1 Scalar Multiplication | $2d - |T| + 1$  | $2 + N$         |
+| G2 Scalar Multipcication | 0               | $2$             |
+| Pairing                  | 0               | $2$             |
 
 Comparing the two methods, we get
 
-| Operation                | Method 1 Open | Method 2 Open | Method 1 Verify     | Method 2 Verify |
-| ------------------------ | ------------- | ------------- | ------------------- | --------------- |
-| Polynomial Interpolation | 0             | 0             | 1                   | $1$             |
-| G1 Scalar Multiplication | d             | $2d$          | $2|T|$              | $2 + |T|$        |
-| G2 Scalar Multipcication | 0             | 0             | $d$ (can be cached) | $2$             |
-| Pairing                  | 0             | 0             | 2                   | $2$             |
+| Operation                | Method 1 Open | Method 2 Open  | Method 1 Verify     | Method 2 Verify |
+| ------------------------ | ------------- | -------------  | ------------------- | --------------- |
+| Polynomial Interpolation | 0             | 0              | 1                   | $1$             |
+| G1 Scalar Multiplication | $d + 1 - |T|$ | $2d-|T|+1$     | $N + |T| + 1$       | $2 + N$         |
+| G2 Scalar Multipcication | 0             | 0              | $d$ (can be cached) | $2$             |
+| Pairing                  | 0             | 0              | 2                   | $2$             |
