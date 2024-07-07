@@ -1,5 +1,5 @@
 //! Various fast multi-scalar multiplication methods using blst assembly
-use ark_ec::CurveGroup;
+use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{BigInt, Zero};
 use ark_serialize::CanonicalSerialize;
 use ark_std::{vec, vec::Vec};
@@ -11,14 +11,14 @@ use core::marker::PhantomData;
 
 use crate::Error;
 
-fn convert_g1(p: &ark_bls12_381::G1Projective) -> blst_p1 {
+fn convert_g1(p: ark_bls12_381::G1Projective) -> blst_p1 {
     let x = blst_fp { l: p.x.0 .0 };
     let y = blst_fp { l: p.y.0 .0 };
     let z = blst_fp { l: p.z.0 .0 };
     blst_p1 { x, y, z }
 }
 
-fn convert_g2(p: &ark_bls12_381::G2Projective) -> blst_p2 {
+fn convert_g2(p: ark_bls12_381::G2Projective) -> blst_p2 {
     let x = blst_fp2 {
         fp: [blst_fp { l: p.x.c0.0 .0 }, blst_fp { l: p.x.c1.0 .0 }],
     };
@@ -132,47 +132,31 @@ pub fn pairing(p: ark_bls12_381::G1Affine, q: ark_bls12_381::G2Affine) -> ark_bl
     }
 }
 
-fn convert_g1_slice(points: &[ark_bls12_381::G1Projective]) -> Vec<blst_p1_affine> {
-    points
-        .iter()
-        .map(|a| a.into_affine())
-        .map(convert_g1_affine)
-        .collect()
-}
-
-fn convert_g2_slice(points: &[ark_bls12_381::G2Projective]) -> Vec<blst_p2_affine> {
-    points
-        .iter()
-        .map(|a| a.into_affine())
-        .map(convert_g2_affine)
-        .collect()
-}
-
 pub(crate) struct P1Affines {
     first: Option<blst_p1>,
     all: Vec<blst_p1_affine>,
     len: usize,
 }
 
-impl<T: AsRef<[ark_bls12_381::G1Projective]>> From<T> for P1Affines {
-    fn from(value: T) -> Self {
-        let len = value.as_ref().len();
-        if len == 0 {
-            return Self {
-                first: None,
-                all: Default::default(),
-                len: 0,
-            };
-        }
-        Self {
-            first: value.as_ref().get(0).map(|p| convert_g1(p)),
-            all: convert_g1_slice(value.as_ref()),
-            len: value.as_ref().len(),
-        }
-    }
-}
-
 impl P1Affines {
+    pub fn from_proj(value: Vec<ark_bls12_381::G1Projective>) -> Self {
+        let len = value.len();
+        let first = value.get(0).map(|p1| convert_g1(*p1));
+        let all: Vec<_> = value
+            .into_iter()
+            .map(CurveGroup::into_affine)
+            .map(convert_g1_affine)
+            .collect();
+        Self { first, all, len }
+    }
+
+    pub fn from_affines(value: Vec<ark_bls12_381::G1Affine>) -> Self {
+        let len = value.len();
+        let first = value.get(0).map(|p1| convert_g1(p1.into_group()));
+        let all: Vec<_> = value.into_iter().map(convert_g1_affine).collect();
+        Self { first, all, len }
+    }
+
     pub fn msm(
         &self,
         mut scalars: &[ark_bls12_381::Fr],
@@ -212,25 +196,26 @@ pub(crate) struct P2Affines {
     len: usize,
 }
 
-impl<T: AsRef<[ark_bls12_381::G2Projective]>> From<T> for P2Affines {
-    fn from(value: T) -> Self {
-        let len = value.as_ref().len();
-        if len == 0 {
-            return Self {
-                first: None,
-                all: Default::default(),
-                len: 0,
-            };
-        }
-        Self {
-            first: value.as_ref().get(0).map(|p| convert_g2(p)),
-            all: convert_g2_slice(value.as_ref()),
-            len: value.as_ref().len(),
-        }
-    }
-}
-
 impl P2Affines {
+    pub fn from_proj(value: Vec<ark_bls12_381::G2Projective>) -> Self {
+        let len = value.len();
+        let first = value.get(0).map(|p2| convert_g2(*p2));
+        let all: Vec<_> = value
+            .into_iter()
+            .map(CurveGroup::into_affine)
+            .map(convert_g2_affine)
+            .collect();
+        Self { first, all, len }
+    }
+
+    #[allow(dead_code)]
+    pub fn from_affines(value: Vec<ark_bls12_381::G2Affine>) -> Self {
+        let len = value.len();
+        let first = value.get(0).map(|p2| convert_g2(p2.into_group()));
+        let all: Vec<_> = value.into_iter().map(convert_g2_affine).collect();
+        Self { first, all, len }
+    }
+
     pub fn msm(
         &self,
         mut scalars: &[ark_bls12_381::Fr],
@@ -323,7 +308,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         fn run(err: bool, g1s: &[ark_bls12_381::G1Projective], scalars: &[ark_bls12_381::Fr]) {
-            let pg1 = P1Affines::from(g1s);
+            let pg1 = P1Affines::from_proj(g1s.to_vec());
             let res = pg1.msm(&scalars);
             assert_eq!(res.is_err(), err);
         }
@@ -347,8 +332,8 @@ mod tests {
             .map(|_| ark_bls12_381::Fr::rand(&mut thread_rng()))
             .collect::<Vec<_>>();
 
-        let pg1 = P1Affines::from(&g1s);
-        let pg2 = P2Affines::from(&g2s);
+        let pg1 = P1Affines::from_proj(g1s.clone());
+        let pg2 = P2Affines::from_proj(g2s.clone());
 
         let res1 = pg1.msm(&scalars).unwrap();
         let res2 = pg2.msm(&scalars).unwrap();
@@ -369,8 +354,8 @@ mod tests {
         let g2s = vec![ark_bls12_381::G2Projective::rand(&mut thread_rng())];
         let scalars = vec![ark_bls12_381::Fr::rand(&mut thread_rng())];
 
-        let pg1 = P1Affines::from(&g1s);
-        let pg2 = P2Affines::from(&g2s);
+        let pg1 = P1Affines::from_proj(g1s.to_vec());
+        let pg2 = P2Affines::from_proj(g2s.to_vec());
 
         let res1 = pg1.msm(&scalars).unwrap();
         let res2 = pg2.msm(&scalars).unwrap();
@@ -390,8 +375,8 @@ mod tests {
         let g1s = vec![G1Projective::rand(&mut thread_rng())];
         let g2s = vec![G2Projective::rand(&mut thread_rng())];
 
-        let pg1 = P1Affines::from(&g1s);
-        let pg2 = P2Affines::from(&g2s);
+        let pg1 = P1Affines::from_proj(g1s);
+        let pg2 = P2Affines::from_proj(g2s);
 
         assert_eq!(Ok(G1Projective::zero()), pg1.msm(&[]));
         assert_eq!(Ok(G2Projective::zero()), pg2.msm(&[]));
@@ -406,8 +391,8 @@ mod tests {
             .map(|_| G2Projective::rand(&mut thread_rng()))
             .collect::<Vec<_>>();
 
-        let pg1 = P1Affines::from(&g1s);
-        let pg2 = P2Affines::from(&g2s);
+        let pg1 = P1Affines::from_proj(g1s);
+        let pg2 = P2Affines::from_proj(g2s);
 
         let scalars = vec![Zero::zero(); 10];
         let res1 = pg1.msm(&scalars);

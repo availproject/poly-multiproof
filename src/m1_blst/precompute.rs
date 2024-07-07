@@ -13,6 +13,7 @@ use crate::traits::{Committer, PolyMultiProof};
 use crate::{cfg_iter, Commitment};
 
 /// Method 1 with blst optimization and precomputed lagrange polynomials/vanishing polys
+#[derive(Clone)]
 pub struct M1Precomp {
     /// The inner method 1 object without precomputation
     pub inner: super::M1NoPrecomp,

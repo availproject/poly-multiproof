@@ -73,8 +73,8 @@ impl M1NoPrecomp {
 
     /// Make a new scheme from the given projective powers
     pub fn new_from_powers(powers_of_g1: Vec<G1>, powers_of_g2: Vec<G2>) -> Self {
-        let prepped_g1s = P1Affines::from(&powers_of_g1);
-        let prepped_g2s = P2Affines::from(&powers_of_g2);
+        let prepped_g1s = P1Affines::from_proj(powers_of_g1.clone());
+        let prepped_g2s = P2Affines::from_proj(powers_of_g2.clone());
         Self {
             powers_of_g1,
             powers_of_g2,
@@ -140,8 +140,7 @@ impl M1NoPrecomp {
         let gamma_ris_pt = self.prepped_g1s.msm(&gamma_ris)?;
 
         // Then do a single msm of the gammas and commitments
-        let cms = commits.iter().map(|i| i.0.into_group()).collect::<Vec<_>>();
-        let cms_prep: P1Affines = cms.into();
+        let cms_prep = P1Affines::from_affines(commits.into_iter().map(|i| i.0).collect());
         let gamma_cm_pt = cms_prep.msm(&gammas)?;
 
         let g2 = self.powers_of_g2[0];

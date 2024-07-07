@@ -43,6 +43,10 @@ bench = false
 name = "bench"
 harness = false
 
+[[bench]]
+name = "pmp_bench"
+harness = false
+
 [[example]]
 name = "data_availability_grid"
 
@@ -51,3 +55,7 @@ rustdoc-args = ["--html-in-header", "./doc/katex-header.html"]
 
 [package.metadata.cargo-all-features]
 allowlist = ["blst", "asm", "parallel", "std"]
+
+[profile.profiling]
+inherits = "release"
+debug = true
