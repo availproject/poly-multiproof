@@ -1,7 +1,13 @@
 use crate::utils::smallest_power_of_2_greater_than;
 use ark_ff::{FftField, Field};
-use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial, Polynomial};
-use core::ops::Mul;
+use ark_poly::{
+    univariate::DensePolynomial, DenseUVPolynomial, EvaluationDomain, Polynomial,
+    Radix2EvaluationDomain,
+};
+use core::{
+    iter::StepBy,
+    ops::{Mul, Range},
+};
 
 fn poly<F: Field>(p: Vec<F>) -> DensePolynomial<F> {
     DensePolynomial::from_coefficients_vec(p)
@@ -25,6 +31,7 @@ fn inv_modl<F: FftField>(u: &DensePolynomial<F>, n: usize) -> DensePolynomial<F>
     poly(v)
 }
 
+/// Trucates a polynomial to have degree at most `max_coeffs - 1`
 pub fn truncate_poly<F: Field>(mut p: DensePolynomial<F>, max_coeffs: usize) -> DensePolynomial<F> {
     p.coeffs.truncate(max_coeffs);
     // We do this to prevent training zeros from messing computations up
@@ -45,6 +52,7 @@ pub struct FastDivisionContext<F: Field> {
 }
 
 impl<F: FftField> FastDivisionContext<F> {
+    /// Makes a new fast division context. This method can be slow.
     pub fn new(denom_poly: DensePolynomial<F>, max_num_poly_deg: usize) -> Self {
         let denom_degree = denom_poly.degree();
         let l = max_num_poly_deg - denom_degree + 1;
@@ -56,6 +64,7 @@ impl<F: FftField> FastDivisionContext<F> {
         }
     }
 
+    /// Performs a fast division. This has roughly the runtime of polynomial multiplication.
     pub fn fast_div(&self, num_poly: DensePolynomial<F>) -> Result<DensePolynomial<F>, ()> {
         //TODO: Figure out what degrees are ok to use and error otherwise
         if num_poly.degree() > self.max_num_poly_deg {
@@ -67,6 +76,61 @@ impl<F: FftField> FastDivisionContext<F> {
         let qrev = truncate_poly(qrev, l);
         Ok(rev_poly(qrev))
     }
+}
+
+/// A conveniece wrapper for getting cyclic subgroups of a base evaluation domain
+#[derive(Clone, Debug)]
+pub struct SplitEvalDomain<F: FftField> {
+    base: Radix2EvaluationDomain<F>,
+    base_size: usize,
+    n_splits: usize,
+}
+
+impl<F: FftField> SplitEvalDomain<F> {
+    /// Make a new split evaluation domain
+    pub fn new(base_size: usize, n_splits: usize) -> Option<Self> {
+        let base = Radix2EvaluationDomain::new(base_size)?;
+        if base_size % n_splits != 0 {
+            return None;
+        }
+        Some(Self {
+            base,
+            base_size,
+            n_splits,
+        })
+    }
+
+    /// Get the base field
+    pub fn base(&self) -> &Radix2EvaluationDomain<F> {
+        &self.base
+    }
+
+    /// Get the subgroup with index `idx`
+    pub fn subgroup(&self, idx: usize) -> Option<Radix2EvaluationDomain<F>> {
+        if idx >= self.n_splits {
+            return None;
+        } else {
+            let gen = self.base.group_gen().pow([idx.try_into().unwrap()]);
+            return Radix2EvaluationDomain::new_coset(self.base_size / self.n_splits, gen);
+        }
+    }
+
+    pub fn subgroups(&self) -> Vec<Radix2EvaluationDomain<F>> {
+        (0..self.n_splits)
+            .into_iter()
+            .map(|idx| self.subgroup(idx).expect("idx < nsplits"))
+            .collect()
+    }
+
+    /// Get indices of subgroup `idx` elements in the base domain
+    pub fn subgroup_indices(&self, idx: usize) -> StepBy<Range<usize>> {
+        (idx..self.base_size).step_by(self.n_splits)
+    }
+}
+
+/// Convenience method to get a vec of points from an evaluation domain
+pub fn ev_points<F: FftField>(ev: &impl EvaluationDomain<F>) -> Vec<F> {
+    ev.elements().collect()
 }
 
 #[cfg(test)]
@@ -133,5 +197,24 @@ mod tests {
                 );
             })
         });
+    }
+
+    #[test]
+    fn test_ev_stuff() {
+        let split_evd = SplitEvalDomain::<Fr>::new(256, 16).unwrap();
+        let all_pts = ev_points(split_evd.base());
+        let mut inds = Vec::new();
+        for i in 0..16 {
+            let i_inds = split_evd.subgroup_indices(i);
+            dbg!(i_inds.clone().into_iter().collect::<Vec<_>>());
+            let i_pts = ev_points(&split_evd.subgroup(i).unwrap());
+            assert_eq!(i_inds.len(), i_pts.len());
+            for (ind, pt) in i_inds.zip(i_pts) {
+                assert_eq!(all_pts[ind], pt);
+                inds.push(ind)
+            }
+        }
+        inds.sort();
+        assert_eq!(inds, (0..256).collect::<Vec<_>>());
     }
 }

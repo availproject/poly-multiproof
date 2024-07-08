@@ -23,6 +23,7 @@ pub use ark_bls12_381::{
 pub mod fast_msm;
 mod kzg;
 pub mod precompute;
+pub mod cyclic_precomp;
 
 /// Method 1, blst optimized, with no precomputation of lagrange polynomials
 pub struct M1NoPrecomp {
@@ -91,7 +92,7 @@ impl M1NoPrecomp {
         points: &[Fr],
         vp: &DensePolynomial<Fr>,
     ) -> Result<Proof, Error> {
-        check_opening_sizes(evals, polys, points)?;
+        check_opening_sizes(evals, polys, points.len())?;
 
         // Commit the evals and the points to the transcript
         let field_size_bytes = get_field_size::<Fr>();
@@ -126,7 +127,7 @@ impl M1NoPrecomp {
         lag_ctx: &LagrangeInterpContext<Fr>,
         g2_zeros: &G2,
     ) -> Result<bool, Error> {
-        check_verify_sizes(commits, points, evals)?;
+        check_verify_sizes(commits, evals, points.len())?;
 
         let field_size_bytes = get_field_size::<Fr>();
         transcribe_points_and_evals(transcript, points, evals, field_size_bytes)?;

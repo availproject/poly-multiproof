@@ -73,7 +73,7 @@ mod polydiv_benches {
 
     use ark_poly::{
         univariate::{DenseOrSparsePolynomial, DensePolynomial},
-        DenseUVPolynomial,
+        DenseUVPolynomial, EvaluationDomain, Radix2EvaluationDomain,
     };
     use core::fmt;
     use poly_multiproof::poly_ops::{truncate_poly, FastDivisionContext};
@@ -102,7 +102,7 @@ mod polydiv_benches {
             truncate_poly(DENOM.clone(), self.denom)
         }
     }
-    const MAX_COEFFS: usize = 4096;
+    const MAX_COEFFS: usize = 1024;
     const STEP: usize = 256;
 
     fn inputs() -> Vec<Input> {
@@ -156,6 +156,17 @@ mod polydiv_benches {
     #[divan::bench(args = INPUTS.deref())]
     fn fast_rev_div(inp: &Input) {
         inp.div_ctx.fast_div(inp.num_poly()).unwrap();
+    }
+
+    #[divan::bench]
+    fn div_by_ev_vanishing(bencher: Bencher) {
+        bencher
+            .with_inputs(|| {
+                let ev = Radix2EvaluationDomain::<Fr>::new(256).unwrap();
+                let poly = DensePolynomial::<Fr>::rand(1024, &mut thread_rng());
+                (ev, poly)
+            })
+            .bench_values(|(ev, poly)| poly.divide_by_vanishing_poly(ev));
     }
 }
 

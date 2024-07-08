@@ -85,7 +85,7 @@ impl<E: Pairing> M1NoPrecomp<E> {
         vp: &DensePolynomial<E::ScalarField>,
     ) -> Result<Proof<E>, Error> {
         // Check sizes
-        check_opening_sizes(evals, polys, points)?;
+        check_opening_sizes(evals, polys, points.len())?;
         // Commit the evals and the points to the transcript
         let field_size_bytes = get_field_size::<E::ScalarField>();
         transcribe_points_and_evals(transcript, points, evals, field_size_bytes)?;
@@ -120,7 +120,7 @@ impl<E: Pairing> M1NoPrecomp<E> {
         lag_ctx: &LagrangeInterpContext<E::ScalarField>,
         g2_zeros: &E::G2,
     ) -> Result<bool, Error> {
-        check_verify_sizes(commits, points, evals)?;
+        check_verify_sizes(commits, evals, points.len())?;
 
         let field_size_bytes = get_field_size::<E::ScalarField>();
         transcribe_points_and_evals(transcript, points, evals, field_size_bytes)?;

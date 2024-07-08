@@ -332,7 +332,7 @@ pub(crate) fn get_challenge<F: PrimeField>(
 pub(crate) fn check_opening_sizes<F>(
     evals: &[impl AsRef<[F]>],
     polys: &[impl AsRef<[F]>],
-    points: &[F],
+    n_points: usize,
 ) -> Result<(), Error> {
     if evals.len() != polys.len() {
         return Err(Error::EvalsAndPolysDifferentSizes {
@@ -341,10 +341,10 @@ pub(crate) fn check_opening_sizes<F>(
         });
     }
     for e in evals {
-        if e.as_ref().len() != points.len() {
+        if e.as_ref().len() != n_points {
             return Err(Error::EvalsAndPointsDifferentSizes {
                 n_evals: e.as_ref().len(),
-                n_points: points.len(),
+                n_points,
             });
         }
     }
@@ -353,8 +353,8 @@ pub(crate) fn check_opening_sizes<F>(
 
 pub(crate) fn check_verify_sizes<F, C>(
     commits: &[C],
-    points: &[F],
     evals: &[impl AsRef<[F]>],
+    n_points: usize,
 ) -> Result<(), Error> {
     if evals.len() != commits.len() {
         return Err(Error::EvalsAndCommitsDifferentSizes {
@@ -363,10 +363,10 @@ pub(crate) fn check_verify_sizes<F, C>(
         });
     }
     for e in evals {
-        if e.as_ref().len() != points.len() {
+        if e.as_ref().len() != n_points {
             return Err(Error::EvalsAndPointsDifferentSizes {
                 n_evals: e.as_ref().len(),
-                n_points: points.len(),
+                n_points,
             });
         }
     }

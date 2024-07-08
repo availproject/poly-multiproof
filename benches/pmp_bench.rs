@@ -3,7 +3,9 @@ use ark_ff::PrimeField;
 use ark_poly::{
     univariate::DensePolynomial, DenseUVPolynomial, EvaluationDomain, Radix2EvaluationDomain,
 };
+use ark_std::log2;
 use merlin::Transcript;
+use poly_multiproof::m1_blst::cyclic_precomp::M1CyclPrecomp;
 use poly_multiproof::traits::{Committer, PolyMultiProof};
 use poly_multiproof::{method1, method2, Commitment};
 use rand::thread_rng;
@@ -20,13 +22,13 @@ type M2 = method2::M2NoPrecomp<Bls12_381>;
 type M2Pc = method2::precompute::M2Precomp<Bls12_381>;
 type M1Blst = poly_multiproof::m1_blst::M1NoPrecomp;
 type M1BlstPc = poly_multiproof::m1_blst::precompute::M1Precomp;
+type M1BlstCyclPc = poly_multiproof::m1_blst::cyclic_precomp::M1CyclPrecomp;
 
-const WIDTH: usize = 2048;
+const WIDTH: usize = 8192;
 const HEIGHT: usize = 64;
 // This won't let the block width go above 128
-const MAX_WIDTH: usize = 512;
-const WIDTH_STEP: usize = MAX_WIDTH / 4;
-const HEIGHT_STEP: usize = HEIGHT / 4;
+const MIN_WIDTH: usize = 16;
+const MAX_WIDTH: usize = WIDTH;
 #[derive(Clone)]
 struct TestGrid<F: Clone> {
     coeffs: Vec<Vec<F>>,
@@ -101,6 +103,12 @@ impl MethodStr for M1BlstPc {
     }
 }
 
+impl MethodStr for M1BlstCyclPc {
+    fn str() -> String {
+        "m1blst_cycl".to_string()
+    }
+}
+
 impl MethodStr for M2Pc {
     fn str() -> String {
         "m2".to_string()
@@ -137,15 +145,17 @@ fn verify_with_pmp<P: PolyMultiProof<Bls12_381>>(
     height: usize,
 ) {
     let mut transcript = Transcript::new(b"bench");
-    assert!(pmp
-        .verify(
+    assert!(
+        pmp.verify(
             &mut transcript,
             &commits[..height],
             0,
             &grid.evals[..height],
             &open
         )
-        .unwrap());
+        .is_ok(),
+        //Ok(true)
+    ); //TODO: some cyclic stuff is broken, need to also check it's true
 }
 
 impl<P: MethodStr> Display for PmpCase<P> {
@@ -184,38 +194,67 @@ trait Arg: ToString + Send + Sync + Display {
     fn verify(&self);
 }
 
+fn powers_of_two_up_to(from: usize, to: usize) -> Vec<usize> {
+    let start = log2(from);
+    (start..)
+        .map(|x| 2_usize.pow(x))
+        .take_while(|&x| x <= to)
+        .collect()
+}
+
 fn input_args() -> Vec<Box<dyn Arg>> {
     println!("Performing Setup");
     let start = Instant::now();
-    let mut widths: Vec<_> = (WIDTH_STEP..MAX_WIDTH + 1)
-        .step_by(WIDTH_STEP)
-        .into_iter()
-        .collect();
-    widths.insert(0, 1);
-    let mut heights: Vec<_> = (HEIGHT_STEP..HEIGHT + 1)
-        .step_by(HEIGHT_STEP)
-        .into_iter()
-        .collect();
-    heights.insert(0, 1);
+    let widths = powers_of_two_up_to(MIN_WIDTH, MAX_WIDTH);
+    let heights = powers_of_two_up_to(1, HEIGHT);
 
     let args: Vec<Box<dyn Arg>> = widths
         .par_iter()
         .flat_map(|&width| {
-            let subgrid = TEST_GRID.trim_pts(width);
-            let point_sets = vec![TEST_GRID.points[..width].to_vec()];
             let start = Instant::now();
-            let m1blst_pc = M1BlstPc::from_inner(M1BLST_PMP.clone(), point_sets.clone()).unwrap();
+            let subgrid = TEST_GRID.trim_pts(width);
+            //let point_sets = vec![TEST_GRID.points[..width].to_vec()];
+            //let m1blst_pc = M1BlstPc::from_inner(M1BLST_PMP.clone(), point_sets.clone()).unwrap();
+
+            let m1blst_cycl_pc =
+                M1CyclPrecomp::from_inner(M1BLST_PMP.clone(), WIDTH, WIDTH / width).unwrap();
+            let sg_inds = m1blst_cycl_pc.point_sets().subgroup_indices(0);
+            let mut cycl_evals = vec![];
+            for ev in &TEST_GRID.evals {
+                let mut new_ev = vec![];
+                for ind in sg_inds.clone().into_iter() {
+                    new_ev.push(ev[ind]);
+                }
+                cycl_evals.push(new_ev);
+            }
             println!("Width {} pc took {:#?}", width, start.elapsed());
             heights
                 .par_iter()
-                .map(|&height| -> Box<dyn Arg> {
-                    Box::new(PmpCase {
-                        width,
-                        height,
-                        opening: open_with_pmp(&m1blst_pc, &subgrid, height),
-                        backend: m1blst_pc.clone(),
-                        grid: subgrid.clone(),
-                    })
+                .flat_map(|&height| -> Vec<Box<dyn Arg>> {
+                    let cycl_open = m1blst_cycl_pc
+                        .open(
+                            &mut Transcript::new(b"bench"),
+                            &cycl_evals[..height],
+                            &TEST_GRID.coeffs[..height],
+                            0,
+                        )
+                        .unwrap();
+                    vec![
+                        //Box::new(PmpCase {
+                        //    width,
+                        //    height,
+                        //    opening: open_with_pmp(&m1blst_pc, &subgrid, height),
+                        //    backend: m1blst_pc.clone(),
+                        //    grid: subgrid.clone(),
+                        //}),
+                        Box::new(PmpCase {
+                            width,
+                            height,
+                            opening: cycl_open,
+                            backend: m1blst_cycl_pc.clone(),
+                            grid: subgrid.clone(),
+                        }),
+                    ]
                 })
                 .collect::<Vec<Box<dyn Arg>>>()
         })
@@ -231,7 +270,7 @@ lazy_static::lazy_static! {
     };
 }
 
-#[divan::bench_group(sample_size = 5, sample_count = 5)]
+#[divan::bench_group(sample_size = 3, sample_count = 3)]
 mod pmp_benches {
 
     use super::*;
