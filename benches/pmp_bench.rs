@@ -24,7 +24,7 @@ type M1Blst = poly_multiproof::m1_blst::M1NoPrecomp;
 type M1BlstPc = poly_multiproof::m1_blst::precompute::M1Precomp;
 type M1BlstCyclPc = poly_multiproof::m1_blst::cyclic_precomp::M1CyclPrecomp;
 
-const WIDTH: usize = 32768;
+const WIDTH: usize = 32768; // 256 mb block
 const HEIGHT: usize = 64;
 // This won't let the block width go above 128
 const MIN_WIDTH: usize = 256;
@@ -122,7 +122,7 @@ struct PmpCase<P: PolyMultiProof<Bls12_381>> {
     height: usize,
     opening: P::Proof,
     backend: P,
-    grid: TestGrid<Fr>,
+    grid: &'static TestGrid<Fr>,
     eval_selector: EvalSelector<P>,
 }
 
@@ -268,7 +268,7 @@ fn input_args() -> Vec<Box<dyn Arg>> {
                                 cycl_eval_selector,
                             ),
                             backend: m1blst_cycl_pc.clone(),
-                            grid: TEST_GRID.clone(),
+                            grid: &TEST_GRID,
                             eval_selector: cycl_eval_selector,
                         }),
                     ]
