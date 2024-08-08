@@ -10,6 +10,7 @@ use poly_multiproof::traits::{Committer, PolyMultiProof};
 use poly_multiproof::{method1, method2, Commitment};
 use rand::thread_rng;
 use rayon::prelude::*;
+use std::sync::Arc;
 use std::{
     fmt::{self, Display, Formatter},
     ops::Deref,
@@ -121,7 +122,7 @@ struct PmpCase<P: PolyMultiProof<Bls12_381>> {
     width: usize,
     height: usize,
     opening: P::Proof,
-    backend: P,
+    backend: Arc<P>,
     grid: &'static TestGrid<Fr>,
     eval_selector: EvalSelector<P>,
 }
@@ -182,7 +183,7 @@ where
 {
     fn open(&self) {
         open_with_pmp(
-            &self.backend,
+            self.backend.as_ref(),
             &self.grid,
             self.width,
             self.height,
@@ -191,8 +192,8 @@ where
     }
 
     fn verify(&self) {
-        verify_with_pmp(
-            &self.backend,
+        verify_with_pmp::<P>(
+            &self.backend.as_ref(),
             &self.grid,
             &COMMITS,
             &self.opening,
@@ -236,8 +237,9 @@ fn input_args() -> Vec<Box<dyn Arg>> {
                     .collect::<Vec<_>>()
             };
 
-            let m1blst_cycl_pc =
-                M1CyclPrecomp::from_inner(M1BLST_PMP.clone(), WIDTH, WIDTH / width).unwrap();
+            let m1blst_cycl_pc = Arc::new(
+                M1CyclPrecomp::from_inner(M1BLST_PMP.clone(), WIDTH, WIDTH / width).unwrap(),
+            );
             let cycl_eval_selector =
                 |pmp: &M1CyclPrecomp, grid: &TestGrid<Fr>, _width: usize, height: usize| {
                     grid.evals[..height]
@@ -261,7 +263,7 @@ fn input_args() -> Vec<Box<dyn Arg>> {
                             width,
                             height,
                             opening: open_with_pmp(
-                                &m1blst_cycl_pc,
+                                m1blst_cycl_pc.as_ref(),
                                 &TEST_GRID,
                                 width,
                                 height,
