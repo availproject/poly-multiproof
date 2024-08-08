@@ -170,6 +170,37 @@ mod polydiv_benches {
     }
 }
 
+#[divan::bench_group(max_time = 0.3)]
+mod msm {
+    use ark_bls12_381::{Fr, G1Affine};
+    use ark_ff::UniformRand;
+    use divan::Bencher;
+    use poly_multiproof::m1_blst::fast_msm;
+    use rand::thread_rng;
+
+    fn inputs(to: usize) -> Vec<usize> {
+        (1..)
+            .map(|x| 2_usize.pow(x))
+            .take_while(|&x| x <= to)
+            .collect()
+    }
+    #[divan::bench(args = inputs(2usize.pow(15)))]
+    fn bench_msm(bencher: Bencher, size: usize) {
+        bencher
+            .with_inputs(|| {
+                (
+                    (0..size)
+                        .map(|_| G1Affine::rand(&mut thread_rng()))
+                        .collect::<Vec<_>>(),
+                    (0..size)
+                        .map(|_| Fr::rand(&mut thread_rng()))
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .bench_values(|(g1s, frs)| fast_msm::P1Affines::from_affines(g1s).msm(&frs))
+    }
+}
+
 fn main() {
     divan::main()
 }

@@ -24,10 +24,10 @@ type M1Blst = poly_multiproof::m1_blst::M1NoPrecomp;
 type M1BlstPc = poly_multiproof::m1_blst::precompute::M1Precomp;
 type M1BlstCyclPc = poly_multiproof::m1_blst::cyclic_precomp::M1CyclPrecomp;
 
-const WIDTH: usize = 8192;
+const WIDTH: usize = 32768;
 const HEIGHT: usize = 64;
 // This won't let the block width go above 128
-const MIN_WIDTH: usize = 16;
+const MIN_WIDTH: usize = 256;
 const MAX_WIDTH: usize = WIDTH;
 #[derive(Clone)]
 struct TestGrid<F: Clone> {
@@ -81,7 +81,7 @@ lazy_static::lazy_static! {
     static ref COMMITS: Vec<Commitment<Bls12_381>> = {
         TEST_GRID
             .coeffs
-            .iter()
+            .par_iter()
             .map(|c| M1_PMP.commit(c).unwrap())
             .collect::<Vec<_>>()
     };
@@ -115,22 +115,27 @@ impl MethodStr for M2Pc {
     }
 }
 
+type EvalSelector<P> = fn(&P, &TestGrid<Fr>, usize, usize) -> Vec<Vec<Fr>>;
+
 struct PmpCase<P: PolyMultiProof<Bls12_381>> {
     width: usize,
     height: usize,
     opening: P::Proof,
     backend: P,
     grid: TestGrid<Fr>,
+    eval_selector: EvalSelector<P>,
 }
 
 fn open_with_pmp<P: PolyMultiProof<Bls12_381>>(
     pmp: &P,
     grid: &TestGrid<Fr>,
+    width: usize,
     height: usize,
+    eval_selector: EvalSelector<P>,
 ) -> P::Proof {
     pmp.open(
         &mut Transcript::new(b"bench"),
-        &grid.evals[..height],
+        &eval_selector(&pmp, grid, width, height),
         &grid.coeffs[..height],
         0,
     )
@@ -142,20 +147,21 @@ fn verify_with_pmp<P: PolyMultiProof<Bls12_381>>(
     grid: &TestGrid<Fr>,
     commits: &[Commitment<Bls12_381>],
     open: &P::Proof,
+    width: usize,
     height: usize,
+    eval_selector: EvalSelector<P>,
 ) {
     let mut transcript = Transcript::new(b"bench");
-    assert!(
+    assert_eq!(
         pmp.verify(
             &mut transcript,
             &commits[..height],
             0,
-            &grid.evals[..height],
+            &eval_selector(&pmp, grid, width, height),
             &open
-        )
-        .is_ok(),
-        //Ok(true)
-    ); //TODO: some cyclic stuff is broken, need to also check it's true
+        ),
+        Ok(true)
+    );
 }
 
 impl<P: MethodStr> Display for PmpCase<P> {
@@ -175,7 +181,13 @@ where
     P::Proof: Send + Sync,
 {
     fn open(&self) {
-        open_with_pmp(&self.backend, &self.grid, self.height);
+        open_with_pmp(
+            &self.backend,
+            &self.grid,
+            self.width,
+            self.height,
+            self.eval_selector,
+        );
     }
 
     fn verify(&self) {
@@ -184,7 +196,9 @@ where
             &self.grid,
             &COMMITS,
             &self.opening,
+            self.width,
             self.height,
+            self.eval_selector,
         );
     }
 }
@@ -212,33 +226,29 @@ fn input_args() -> Vec<Box<dyn Arg>> {
         .par_iter()
         .flat_map(|&width| {
             let start = Instant::now();
-            let subgrid = TEST_GRID.trim_pts(width);
+            //let subgrid = TEST_GRID.trim_pts(width);
             //let point_sets = vec![TEST_GRID.points[..width].to_vec()];
             //let m1blst_pc = M1BlstPc::from_inner(M1BLST_PMP.clone(), point_sets.clone()).unwrap();
+            let _basic_eval_selector = |grid: &TestGrid<Fr>, width: usize, height: usize| {
+                grid.evals[..height]
+                    .iter()
+                    .map(|ev| ev[..width].to_vec())
+                    .collect::<Vec<_>>()
+            };
 
             let m1blst_cycl_pc =
                 M1CyclPrecomp::from_inner(M1BLST_PMP.clone(), WIDTH, WIDTH / width).unwrap();
-            let sg_inds = m1blst_cycl_pc.point_sets().subgroup_indices(0);
-            let mut cycl_evals = vec![];
-            for ev in &TEST_GRID.evals {
-                let mut new_ev = vec![];
-                for ind in sg_inds.clone().into_iter() {
-                    new_ev.push(ev[ind]);
-                }
-                cycl_evals.push(new_ev);
-            }
+            let cycl_eval_selector =
+                |pmp: &M1CyclPrecomp, grid: &TestGrid<Fr>, _width: usize, height: usize| {
+                    grid.evals[..height]
+                        .iter()
+                        .map(|ev| pmp.point_sets().take_subgroup_indices(0, ev).unwrap())
+                        .collect()
+                };
             println!("Width {} pc took {:#?}", width, start.elapsed());
             heights
                 .par_iter()
                 .flat_map(|&height| -> Vec<Box<dyn Arg>> {
-                    let cycl_open = m1blst_cycl_pc
-                        .open(
-                            &mut Transcript::new(b"bench"),
-                            &cycl_evals[..height],
-                            &TEST_GRID.coeffs[..height],
-                            0,
-                        )
-                        .unwrap();
                     vec![
                         //Box::new(PmpCase {
                         //    width,
@@ -250,9 +260,16 @@ fn input_args() -> Vec<Box<dyn Arg>> {
                         Box::new(PmpCase {
                             width,
                             height,
-                            opening: cycl_open,
+                            opening: open_with_pmp(
+                                &m1blst_cycl_pc,
+                                &TEST_GRID,
+                                width,
+                                height,
+                                cycl_eval_selector,
+                            ),
                             backend: m1blst_cycl_pc.clone(),
-                            grid: subgrid.clone(),
+                            grid: TEST_GRID.clone(),
+                            eval_selector: cycl_eval_selector,
                         }),
                     ]
                 })

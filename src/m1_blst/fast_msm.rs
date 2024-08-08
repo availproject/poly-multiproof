@@ -132,13 +132,16 @@ pub fn pairing(p: ark_bls12_381::G1Affine, q: ark_bls12_381::G2Affine) -> ark_bl
     }
 }
 
-pub(crate) struct P1Affines {
+/// Internal convenience structure for doing fast MSM using blst. Don't use
+/// unless you know what you're doing.
+pub struct P1Affines {
     first: Option<blst_p1>,
     all: Vec<blst_p1_affine>,
     len: usize,
 }
 
 impl P1Affines {
+    /// Construct affines collection from a set of projective points
     pub fn from_proj(value: Vec<ark_bls12_381::G1Projective>) -> Self {
         let len = value.len();
         let first = value.get(0).map(|p1| convert_g1(*p1));
@@ -150,6 +153,7 @@ impl P1Affines {
         Self { first, all, len }
     }
 
+    /// Construct from a set of affine points
     pub fn from_affines(value: Vec<ark_bls12_381::G1Affine>) -> Self {
         let len = value.len();
         let first = value.get(0).map(|p1| convert_g1(p1.into_group()));
@@ -157,6 +161,7 @@ impl P1Affines {
         Self { first, all, len }
     }
 
+    /// Perform the MSM
     pub fn msm(
         &self,
         mut scalars: &[ark_bls12_381::Fr],

@@ -81,7 +81,7 @@ impl<F: FftField> FastDivisionContext<F> {
 /// A conveniece wrapper for getting cyclic subgroups of a base evaluation domain
 #[derive(Clone, Debug)]
 pub struct SplitEvalDomain<F: FftField> {
-    base: Radix2EvaluationDomain<F>,
+    base_domain: Radix2EvaluationDomain<F>,
     base_size: usize,
     n_splits: usize,
 }
@@ -94,7 +94,7 @@ impl<F: FftField> SplitEvalDomain<F> {
             return None;
         }
         Some(Self {
-            base,
+            base_domain: base,
             base_size,
             n_splits,
         })
@@ -102,7 +102,7 @@ impl<F: FftField> SplitEvalDomain<F> {
 
     /// Get the base field
     pub fn base(&self) -> &Radix2EvaluationDomain<F> {
-        &self.base
+        &self.base_domain
     }
 
     /// Get the subgroup with index `idx`
@@ -110,11 +110,12 @@ impl<F: FftField> SplitEvalDomain<F> {
         if idx >= self.n_splits {
             return None;
         } else {
-            let gen = self.base.group_gen().pow([idx.try_into().unwrap()]);
+            let gen = self.base_domain.group_gen().pow([idx.try_into().unwrap()]);
             return Radix2EvaluationDomain::new_coset(self.base_size / self.n_splits, gen);
         }
     }
 
+    /// Gets the subgroups of the base cyclic group
     pub fn subgroups(&self) -> Vec<Radix2EvaluationDomain<F>> {
         (0..self.n_splits)
             .into_iter()
@@ -125,6 +126,32 @@ impl<F: FftField> SplitEvalDomain<F> {
     /// Get indices of subgroup `idx` elements in the base domain
     pub fn subgroup_indices(&self, idx: usize) -> StepBy<Range<usize>> {
         (idx..self.base_size).step_by(self.n_splits)
+    }
+
+    /// Get indices of subgroup `idx` elements in the base domain
+    pub fn take_subgroup_indices<K: Clone, T: AsRef<[K]>>(
+        &self,
+        idx: usize,
+        items: T,
+    ) -> Option<Vec<K>> {
+        if idx >= self.n_splits {
+            dbg!("idx >= n_splits", idx, self.n_splits);
+            return None;
+        }
+        if items.as_ref().len() != self.base_size {
+            dbg!(
+                "items.len() != base_size",
+                items.as_ref().len(),
+                self.base_size
+            );
+            return None;
+        }
+        let items = items.as_ref();
+        Some(
+            self.subgroup_indices(idx)
+                .map(|i| items[i].clone())
+                .collect(),
+        )
     }
 }
 
@@ -197,6 +224,23 @@ mod tests {
                 );
             })
         });
+    }
+
+    #[test]
+    fn test_ev_points() {
+        let evd = Radix2EvaluationDomain::<Fr>::new(256).unwrap();
+        let pts = ev_points(&evd);
+        let x_poly = DensePolynomial::from_coefficients_vec(vec![Zero::zero(), One::one()]);
+        let fft_eval = evd.fft(&x_poly.coeffs);
+        assert_eq!(pts, fft_eval);
+
+        let rand_poly = DensePolynomial::<Fr>::rand(255, &mut thread_rng());
+        let naive_evals = pts
+            .iter()
+            .map(|p| rand_poly.evaluate(p))
+            .collect::<Vec<_>>();
+        let fft_evals = evd.fft(&rand_poly.coeffs);
+        assert_eq!(naive_evals, fft_evals);
     }
 
     #[test]

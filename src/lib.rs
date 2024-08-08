@@ -59,7 +59,7 @@
 //! Using `--quick` is nice since there are many many inputs benchmarked and it will still take an hour or so to run with `--quick`.
 //!
 use ark_ec::{pairing::Pairing, scalar_mul::fixed_base::FixedBase, CurveGroup, ScalarMul};
-use ark_ff::{FftField, Field, PrimeField, Zero};
+use ark_ff::{Field, PrimeField};
 use ark_poly::{
     univariate::{DenseOrSparsePolynomial, DensePolynomial},
     DenseUVPolynomial, EvaluationDomain, GeneralEvaluationDomain,
@@ -85,7 +85,9 @@ pub mod m1_blst;
 
 pub mod traits;
 
+/// The one-stop shop for complex polynomial operations
 pub mod poly_ops;
+/// Utilities module
 pub mod utils;
 
 #[cfg(test)]

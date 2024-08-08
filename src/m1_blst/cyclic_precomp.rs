@@ -86,6 +86,9 @@ impl M1CyclPrecomp {
         })
     }
 
+    /// Returns the SplitEvalDomain beign used for the multiproof scheme.
+    /// In order to figure out which points map to which evaluation index, you should use this
+    /// object
     pub fn point_sets(&self) -> &SplitEvalDomain<Fr> {
         &self.split_domain
     }
@@ -181,8 +184,18 @@ impl PolyMultiProof<Bls12_381> for M1CyclPrecomp {
 
 #[cfg(test)]
 mod tests {
+    use ark_bls12_381::Fr;
+    use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial, EvaluationDomain, Polynomial};
+    use merlin::Transcript;
+
     use super::M1CyclPrecomp;
-    use crate::{m1_blst::M1NoPrecomp, poly_ops::ev_points, test_rng, testing::test_basic_precomp};
+    use crate::{
+        m1_blst::M1NoPrecomp,
+        poly_ops::ev_points,
+        test_rng,
+        testing::test_basic_precomp,
+        traits::{Committer, PolyMultiProof},
+    };
 
     #[test]
     fn test_basic_open_works() {
@@ -190,5 +203,56 @@ mod tests {
         let s = M1CyclPrecomp::from_inner(s, 256, 2).expect("Failed to construct");
         let points = ev_points(&s.point_set_groups[0]);
         test_basic_precomp(&s, &points);
+    }
+
+    #[test]
+    fn test_complex_open_works() {
+        let s = M1NoPrecomp::new(256, 256, &mut test_rng());
+        let s = M1CyclPrecomp::from_inner(s, 256, 2).expect("Failed to construct");
+        let polys = (0..2)
+            .map(|_| DensePolynomial::<Fr>::rand(255, &mut test_rng()).coeffs)
+            .collect::<Vec<_>>();
+        let commits = polys
+            .iter()
+            .map(|p| s.commit(p).expect("Commit failed"))
+            .collect::<Vec<_>>();
+        let points = ev_points(s.split_domain.base());
+        let naive_evals = polys
+            .iter()
+            .map(|poly| {
+                points
+                    .iter()
+                    .map(|p| DensePolynomial::from_coefficients_vec(poly.clone()).evaluate(p))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        let evals = polys
+            .iter()
+            .map(|p| s.split_domain.base().fft(p))
+            .collect::<Vec<_>>();
+        assert_eq!(evals, naive_evals);
+        for gi in 0..s.point_set_groups.len() {
+            let trimmed_evals: Vec<_> = naive_evals
+                .iter()
+                .map(|ev| {
+                    s.split_domain
+                        .take_subgroup_indices(gi, ev.clone())
+                        .unwrap()
+                })
+                .collect();
+            let proof = s
+                .open(&mut Transcript::new(b"test"), &trimmed_evals, &polys, gi)
+                .expect("Failed to open");
+            assert_eq!(
+                Ok(true),
+                s.verify(
+                    &mut Transcript::new(b"test"),
+                    &commits,
+                    gi,
+                    &trimmed_evals,
+                    &proof
+                )
+            );
+        }
     }
 }

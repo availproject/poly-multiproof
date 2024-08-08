@@ -20,10 +20,10 @@ pub use ark_bls12_381::{
     Bls12_381, Fr, G1Affine, G1Projective as G1, G2Affine, G2Projective as G2,
 };
 
+pub mod cyclic_precomp;
 pub mod fast_msm;
 mod kzg;
 pub mod precompute;
-pub mod cyclic_precomp;
 
 /// Method 1, blst optimized, with no precomputation of lagrange polynomials
 pub struct M1NoPrecomp {
