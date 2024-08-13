@@ -1,4 +1,4 @@
-use crate::{test_rng, traits::KZGProof, vec, Error, Vec};
+use crate::{msm::blst::BlstMSMEngine, test_rng, traits::KZGProof, vec, Error, Vec};
 use ark_bls12_381::Bls12_381;
 use ark_ec::pairing::Pairing;
 use ark_ff::{One, UniformRand, Zero};
@@ -165,7 +165,9 @@ pub fn test_kzg(srs: &(impl KZGProof<Bls12_381> + Committer<Bls12_381>)) {
         let witness = srs.compute_witness_polynomial(coeffs, pt).unwrap();
         let proof = srs.open(witness).unwrap();
 
-        let veri = srs.verify(&commit, pt, value, &proof).unwrap();
+        let veri = srs
+            .verify::<BlstMSMEngine>(&commit, pt, value, &proof)
+            .unwrap();
         assert!(veri);
     }
 

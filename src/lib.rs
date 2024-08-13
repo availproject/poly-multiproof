@@ -76,19 +76,20 @@ pub use ark_poly;
 pub use ark_serialize;
 pub use merlin;
 
+pub mod m1_cycl;
 pub mod method1;
 pub mod method2;
 
+pub mod kzg;
+
 pub(crate) mod lagrange;
-#[cfg(feature = "blst")]
-pub mod m1_blst;
 
 pub mod traits;
 
-/// The one-stop shop for complex polynomial operations
 pub mod poly_ops;
-/// Utilities module
 pub mod utils;
+
+pub mod msm;
 
 #[cfg(test)]
 pub mod testing;

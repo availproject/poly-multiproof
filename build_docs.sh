@@ -1,2 +1,2 @@
 #!/bin/bash
-RUSTDOCFLAGS="--html-in-header doc/katex-header.html" cargo doc --document-private-items
+RUSTDOCFLAGS="--html-in-header $(pwd)/doc/katex-header.html" cargo doc --document-private-items

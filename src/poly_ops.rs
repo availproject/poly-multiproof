@@ -1,3 +1,5 @@
+//! Polynomial operations and utilities
+//! Don't use these unless you're sure you have to
 use crate::utils::smallest_power_of_2_greater_than;
 use ark_ff::{FftField, Field};
 use ark_poly::{

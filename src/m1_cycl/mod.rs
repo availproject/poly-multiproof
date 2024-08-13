@@ -1,9 +1,9 @@
 //! Precomputation for Method 1 where each point set is a cyclic subgroup of the evaluation domain, with blst optimizations
+use ark_ec::pairing::Pairing;
 use ark_ec::CurveGroup;
 use ark_ff::Zero;
 use core::ops::Deref;
 
-use ark_bls12_381::{Bls12_381, Fr, G2Affine, G2Projective as G2};
 use ark_poly::univariate::DensePolynomial;
 use ark_poly::{DenseUVPolynomial, EvaluationDomain, Radix2EvaluationDomain};
 use ark_std::vec::Vec;
@@ -13,36 +13,34 @@ use merlin::Transcript;
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
 
-use super::{fast_msm, Error, Proof};
-use crate::m1_blst::fast_msm::P1Affines;
+use crate::method1::{M1NoPrecomp, Proof};
 use crate::poly_ops::{ev_points, SplitEvalDomain};
-use crate::traits::{Committer, PolyMultiProof};
+use crate::traits::{Committer, MSMEngine, PolyMultiProof};
 use crate::{
     cfg_iter, check_opening_sizes, check_verify_sizes, gen_powers, get_challenge, get_field_size,
-    linear_combination, transcribe_points_and_evals, Commitment,
+    linear_combination, transcribe_points_and_evals, Commitment, Error,
 };
 
 /// Method 1 with blst optimization and precomputed lagrange polynomials/vanishing polys
 #[derive(Clone)]
-pub struct M1CyclPrecomp {
+pub struct M1CyclPrecomp<E: Pairing, M: MSMEngine<E = E>> {
     /// The inner method 1 object without precomputation
-    pub inner: super::M1NoPrecomp,
-    split_domain: SplitEvalDomain<Fr>,
-    point_set_groups: Vec<Radix2EvaluationDomain<Fr>>,
+    pub inner: M1NoPrecomp<E, M>,
+    split_domain: SplitEvalDomain<E::ScalarField>,
+    point_set_groups: Vec<Radix2EvaluationDomain<E::ScalarField>>,
     num_point_sets: usize,
     base_size: usize,
-    g2_zeros: Vec<G2Affine>,
-    //lagrange_ctxs: Vec<LagrangeInterpContext<Fr>>,
+    g2_zeros: Vec<E::G2Affine>,
 }
 
 fn is_power_of_two(n: usize) -> bool {
     n != 0 && (n & (n - 1)) == 0
 }
 
-impl M1CyclPrecomp {
+impl<E: Pairing, M: MSMEngine<E = E>> M1CyclPrecomp<E, M> {
     /// Make a precompute-optimized version of a method 1 object for the given sets of points
     pub fn from_inner(
-        inner: super::M1NoPrecomp,
+        inner: M1NoPrecomp<E, M>,
         base_size: usize,
         num_point_sets: usize,
     ) -> Result<Self, Error> {
@@ -52,7 +50,7 @@ impl M1CyclPrecomp {
         if inner.powers_of_g1.len() < base_size {
             return Err(Error::DomainConstructionFailed(base_size));
         }
-        let split_domain = SplitEvalDomain::<Fr>::new(base_size, num_point_sets)
+        let split_domain = SplitEvalDomain::<E::ScalarField>::new(base_size, num_point_sets)
             .ok_or(Error::DomainConstructionFailed(inner.powers_of_g1.len()))?;
         let point_set_groups = split_domain.subgroups();
         let vanishing_polys: Vec<_> = cfg_iter!(point_set_groups)
@@ -61,7 +59,7 @@ impl M1CyclPrecomp {
         let g2_zeros = cfg_iter!(vanishing_polys)
             .map(|(_, p)| {
                 let coeffs = p.deref();
-                let mut accum = G2::zero();
+                let mut accum = E::G2::zero();
                 for (i0, p0) in coeffs {
                     accum += inner
                         .powers_of_g2
@@ -89,25 +87,25 @@ impl M1CyclPrecomp {
     /// Returns the SplitEvalDomain beign used for the multiproof scheme.
     /// In order to figure out which points map to which evaluation index, you should use this
     /// object
-    pub fn point_sets(&self) -> &SplitEvalDomain<Fr> {
+    pub fn point_sets(&self) -> &SplitEvalDomain<E::ScalarField> {
         &self.split_domain
     }
 }
 
-impl Committer<Bls12_381> for M1CyclPrecomp {
-    fn commit(&self, poly: impl AsRef<[Fr]>) -> Result<Commitment<Bls12_381>, Error> {
+impl<E: Pairing, M: MSMEngine<E = E>> Committer<E> for M1CyclPrecomp<E, M> {
+    fn commit(&self, poly: impl AsRef<[E::ScalarField]>) -> Result<Commitment<E>, Error> {
         self.inner.commit(poly)
     }
 }
 
-impl PolyMultiProof<Bls12_381> for M1CyclPrecomp {
-    type Proof = Proof;
+impl<E: Pairing, M: MSMEngine<E = E>> PolyMultiProof<E> for M1CyclPrecomp<E, M> {
+    type Proof = Proof<E>;
 
     fn open(
         &self,
         transcript: &mut Transcript,
-        evals: &[impl AsRef<[Fr]>],
-        polys: &[impl AsRef<[Fr]>],
+        evals: &[impl AsRef<[E::ScalarField]>],
+        polys: &[impl AsRef<[E::ScalarField]>],
         point_set_index: usize,
     ) -> Result<Self::Proof, Error> {
         check_opening_sizes(evals, polys, self.base_size / self.num_point_sets)?;
@@ -119,15 +117,16 @@ impl PolyMultiProof<Bls12_381> for M1CyclPrecomp {
             .get(point_set_index)
             .ok_or(Error::NoPointsGiven)?;
         let points = ev_points(subgroup);
-        let field_size_bytes = get_field_size::<Fr>();
+        let field_size_bytes = get_field_size::<E::ScalarField>();
         transcribe_points_and_evals(transcript, &points, evals, field_size_bytes)?;
 
         // Read the challenge
-        let gamma = get_challenge::<Fr>(transcript, b"open gamma", field_size_bytes);
+        let gamma = get_challenge::<E::ScalarField>(transcript, b"open gamma", field_size_bytes);
         // Make the gamma powers
-        let gammas = gen_powers::<Fr>(gamma, self.inner.powers_of_g1.len());
+        let gammas = gen_powers::<E::ScalarField>(gamma, self.inner.powers_of_g1.len());
         // Take a linear combo of gammas with the polynomials
-        let fsum = linear_combination::<Fr>(polys, &gammas).ok_or(Error::NoPolynomialsGiven)?;
+        let fsum = linear_combination::<E::ScalarField>(polys, &gammas)
+            .ok_or(Error::NoPolynomialsGiven)?;
 
         // Polynomial divide, the remained would contain the gamma * ri_s,
         // The result is the correct quotient
@@ -135,22 +134,22 @@ impl PolyMultiProof<Bls12_381> for M1CyclPrecomp {
             .divide_by_vanishing_poly(*subgroup)
             .expect("This always succeeds");
         // Open to the resulting polynomial
-        Ok(Proof {
-            0: self.inner.prepped_g1s.msm(&q)?.into_affine(),
-        })
+        Ok(Proof(
+            M::multi_scalar_mul_g1(&self.inner.g1_precomp, &q.deref())?.into_affine(),
+        ))
     }
 
     fn verify(
         &self,
         transcript: &mut Transcript,
-        commits: &[Commitment<Bls12_381>],
+        commits: &[Commitment<E>],
         point_set_index: usize,
-        evals: &[impl AsRef<[Fr]>],
+        evals: &[impl AsRef<[E::ScalarField]>],
         proof: &Self::Proof,
     ) -> Result<bool, Error> {
         check_verify_sizes(commits, evals, self.base_size / self.num_point_sets)?;
 
-        let field_size_bytes = get_field_size::<Fr>();
+        let field_size_bytes = get_field_size::<E::ScalarField>();
         // TODO: better error
         let subgroup = self
             .point_set_groups
@@ -166,31 +165,32 @@ impl PolyMultiProof<Bls12_381> for M1CyclPrecomp {
         let mut gamma_ris = linear_combination(&evals, &gammas).expect("TODO");
         // Then we find the coefficients
         subgroup.ifft_in_place(&mut gamma_ris);
-        let gamma_ris_pt = self.inner.prepped_g1s.msm(&gamma_ris)?;
+        let gamma_ris_pt = M::multi_scalar_mul_g1(&self.inner.g1_precomp, &gamma_ris)?;
 
         // Then do a single msm of the gammas and commitments
-        let cms_prep = P1Affines::from_affines(commits.into_iter().map(|i| i.0).collect());
-        let gamma_cm_pt = cms_prep.msm(&gammas)?;
+        let cms_prep = M::prepare_g1(commits.into_iter().map(|i| i.0).collect());
+        let gamma_cm_pt = M::multi_scalar_mul_g1(&cms_prep, &gammas)?;
 
         let g2 = self.inner.powers_of_g2[0];
 
         let lhsg1 = (gamma_cm_pt - gamma_ris_pt).into_affine();
-        let lhsg2 = g2.into_affine();
+        let lhsg2 = g2;
         let rhsg1 = proof.0;
         let rhsg2 = self.g2_zeros[point_set_index];
-        Ok(fast_msm::check_pairings_equal(lhsg1, lhsg2, rhsg1, rhsg2))
+        Ok(M::pairing_eq_check(lhsg1, lhsg2, rhsg1, rhsg2))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use ark_bls12_381::Fr;
+    use ark_bls12_381::{Bls12_381, Fr};
     use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial, EvaluationDomain, Polynomial};
     use merlin::Transcript;
 
     use super::M1CyclPrecomp;
     use crate::{
-        m1_blst::M1NoPrecomp,
+        method1::M1NoPrecomp,
+        msm::ArkMSMEngine,
         poly_ops::ev_points,
         test_rng,
         testing::test_basic_precomp,
@@ -199,7 +199,7 @@ mod tests {
 
     #[test]
     fn test_basic_open_works() {
-        let s = M1NoPrecomp::new(256, 256, &mut test_rng());
+        let s = <M1NoPrecomp<Bls12_381, ArkMSMEngine<Bls12_381>>>::new(256, 256, &mut test_rng());
         let s = M1CyclPrecomp::from_inner(s, 256, 2).expect("Failed to construct");
         let points = ev_points(&s.point_set_groups[0]);
         test_basic_precomp(&s, &points);
@@ -207,7 +207,7 @@ mod tests {
 
     #[test]
     fn test_complex_open_works() {
-        let s = M1NoPrecomp::new(256, 256, &mut test_rng());
+        let s = <M1NoPrecomp<Bls12_381, ArkMSMEngine<Bls12_381>>>::new(256, 256, &mut test_rng());
         let s = M1CyclPrecomp::from_inner(s, 256, 2).expect("Failed to construct");
         let polys = (0..2)
             .map(|_| DensePolynomial::<Fr>::rand(255, &mut test_rng()).coeffs)

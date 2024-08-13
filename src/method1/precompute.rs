@@ -10,24 +10,24 @@ use rayon::prelude::*;
 
 use super::{vanishing_polynomial, Error, Proof};
 use crate::lagrange::LagrangeInterpContext;
-use crate::traits::{Committer, PolyMultiProof};
+use crate::traits::{Committer, MSMEngine, PolyMultiProof};
 use crate::{cfg_iter, Commitment};
 
 /// Method 1 scheme with precomputed lagrange polynomials/vanishing polys
-#[derive(Clone, Debug)]
-pub struct M1Precomp<E: Pairing> {
+#[derive(Clone)]
+pub struct M1Precomp<E: Pairing, M: MSMEngine<E = E>> {
     /// The inner method 1 object without precomputation
-    pub inner: super::M1NoPrecomp<E>,
+    pub inner: super::M1NoPrecomp<E, M>,
     point_sets: Vec<Vec<E::ScalarField>>,
     vanishing_polys: Vec<DensePolynomial<E::ScalarField>>,
     g2_zeros: Vec<E::G2>,
     lagrange_ctxs: Vec<LagrangeInterpContext<E::ScalarField>>,
 }
 
-impl<E: Pairing> M1Precomp<E> {
+impl<E: Pairing, M: MSMEngine<E = E>> M1Precomp<E, M> {
     /// Make a precompute-optimized version of a method 1 object for the given sets of points
     pub fn from_inner(
-        inner: super::M1NoPrecomp<E>,
+        inner: super::M1NoPrecomp<E, M>,
         point_sets: Vec<Vec<<E as Pairing>::ScalarField>>,
     ) -> Result<Self, Error> {
         let vanishing_polys: Vec<_> = cfg_iter!(point_sets)
@@ -50,7 +50,7 @@ impl<E: Pairing> M1Precomp<E> {
     }
 }
 
-impl<E: Pairing> Committer<E> for M1Precomp<E> {
+impl<E: Pairing, M: MSMEngine<E = E>> Committer<E> for M1Precomp<E, M> {
     fn commit(
         &self,
         poly: impl AsRef<[<E as Pairing>::ScalarField]>,
@@ -59,7 +59,7 @@ impl<E: Pairing> Committer<E> for M1Precomp<E> {
     }
 }
 
-impl<E: Pairing> PolyMultiProof<E> for M1Precomp<E> {
+impl<E: Pairing, M: MSMEngine<E = E>> PolyMultiProof<E> for M1Precomp<E, M> {
     type Proof = Proof<E>;
 
     fn open(
@@ -101,7 +101,12 @@ impl<E: Pairing> PolyMultiProof<E> for M1Precomp<E> {
 #[cfg(test)]
 mod tests {
     use super::M1Precomp;
-    use crate::{method1::M1NoPrecomp, test_rng, testing::test_basic_precomp};
+    use crate::{
+        method1::M1NoPrecomp,
+        msm::{blst::BlstMSMEngine, ArkMSMEngine},
+        test_rng,
+        testing::test_basic_precomp,
+    };
     use ark_bls12_381::{Bls12_381, Fr};
     use ark_std::{vec, vec::Vec, UniformRand};
 
@@ -110,8 +115,12 @@ mod tests {
         let points = (0..30)
             .map(|_| Fr::rand(&mut test_rng()))
             .collect::<Vec<_>>();
-        let s = M1NoPrecomp::<Bls12_381>::new(256, 32, &mut test_rng());
+        let s = M1NoPrecomp::<Bls12_381, ArkMSMEngine<Bls12_381>>::new(256, 32, &mut test_rng());
         let s = M1Precomp::from_inner(s, vec![points.clone()]).expect("Failed to construct");
-        test_basic_precomp(&s, &points)
+        test_basic_precomp(&s, &points);
+
+        let s = M1NoPrecomp::<Bls12_381, BlstMSMEngine>::new(256, 32, &mut test_rng());
+        let s = M1Precomp::from_inner(s, vec![points.clone()]).expect("Failed to construct");
+        test_basic_precomp(&s, &points);
     }
 }

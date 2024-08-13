@@ -1,21 +1,17 @@
 # Overview
 
 The Polynomial Multiproof (PMP) scheme is a polynomial commitment scheme that allows for efficiently creating/verifying opening proofs for multiple polynomials at multiple points. 
-Notably, opening speed is mostly _not dependent on the number of polynomials/points_ opened to.
-Verification scales with the number of points/polynomials, but remains fast.
-Two methods are provided, which trade opening speed for verification speed. 
 
-For some sample numbers, here are times opening/verifying degree 255 polynomials using BLS12-381[^1]:
+Here's why this project is cool: **Opening gets faster the more points we open a polynomial at.**
 
-|  | Method 1 | Method 2|
-|--|----------|---------|
-|Opening time | 12-14ms | 26-28ms |
-|Verification time | 4-48ms | 5-35ms |
+This is a huge deal for data availability systems, which are bottlenecked by opening time.
 
-![Verification Times](./veri-times.png)
+For some sample numbers, here are times opening/verifying degree 32768 - 1 polynomials using BLS12-381[^1] on a single core of an M1 Macbook Pro:
+
+![Benchmarks](./m1cycl_32768.png)
 
 This specification outlines implementation requirements for the polynomial multiproof (PMP) scheme.
-This builds on previous methods such as KZG10[^2], and is heavily inspired by BDFG21[^3]. 
+This builds on previous methods such as KZG10[^2], and is derived entirely from BDFG21[^3]. 
 It should be seen as choosing a special case of BDFG21 which allows for significant optimizations that make the protocol more viable for use in applications like Data Availability.
 
 The scheme consists of four methods:
@@ -24,6 +20,70 @@ The scheme consists of four methods:
 2. `Commit` which commits to a polynomial
 3. `M1Open/M2Open` which computes a single opening proof that a set of polynomials are equal to specific values at a set of points
 4. `M1Verify/M2Verify` which verify an opening proof against commitments and evaluations
+
+### API
+
+The API is designed around two traits, the first looks roughly like
+```rust
+/// A curve-agnostic trait for a BDFG commitment scheme *without precomputation*
+pub trait PolyMultiProofNoPrecomp<E: Pairing>: Sized {
+    /// The output proof type
+    type Proof: Clone;
+
+    /// Creates a proof of the given polynomials and evals at the given points
+    fn open(
+        &self,
+        transcript: &mut Transcript,
+        evals: &[impl AsRef<[E::ScalarField]>],
+        polys: &[impl AsRef<[E::ScalarField]>],
+        points: &[E::ScalarField],
+    ) -> Result<Self::Proof, Error>;
+
+    /// Verifies a proof against the given set of commitments and points
+    fn verify(
+        &self,
+        transcript: &mut Transcript,
+        commits: &[Commitment<E>],
+        points: &[E::ScalarField],
+        evals: &[impl AsRef<[E::ScalarField]>],
+        proof: &Self::Proof,
+    ) -> Result<bool, Error>;
+}
+```
+
+This takes a Merlin transcript for the Fiat-Shamir transform, some points $x_j$, some polynomials $f_i$ and the evaluations of each polynomial at each point $f_i(x_j)$.
+
+This API is the most flexible, but not the most efficient.
+
+The second trait is more efficient, but requires knowledge of which points are being opened to beforehand.
+```rust
+/// A curve-agnostic trait for a BDFG commitment scheme *with precomputation*
+pub trait PolyMultiProof<E: Pairing>: Sized {
+    /// The output proof type
+    type Proof: Clone;
+
+    /// Creates a of the given polynomials at the given point set index
+    fn open(
+        &self,
+        transcript: &mut Transcript,
+        evals: &[impl AsRef<[E::ScalarField]>],
+        polys: &[impl AsRef<[E::ScalarField]>],
+        point_set_index: usize,
+    ) -> Result<Self::Proof, Error>;
+
+    /// Verifies a proof against the given set of commitments and points
+    fn verify(
+        &self,
+        transcript: &mut Transcript,
+        commits: &[Commitment<E>],
+        point_set_index: usize,
+        evals: &[impl AsRef<[E::ScalarField]>],
+        proof: &Self::Proof,
+    ) -> Result<bool, Error>;
+}
+```
+
+When creating this object, there will be some way to specify the points, or they will be predetermined by the implementation. The API is largely the same.
 
 ### Applications to Data Availability
 Data availability systems can benefit greatly from PMP, since polynomial commitment-based DA systems are tremendously constrained by opening time.

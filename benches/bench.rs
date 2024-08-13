@@ -1,18 +1,20 @@
-use ark_bls12_381::{Fr, G1Affine, G1Projective, G2Affine, G2Projective};
-use ark_ec::pairing::Pairing;
-use ark_ec::CurveGroup;
+use ark_bls12_381::{Fr, G1Affine, G2Affine};
 use ark_ff::One;
 use ark_ff::UniformRand;
 use divan::Bencher;
 use rayon::prelude::*;
 #[divan::bench_group]
 mod pairing_benches {
+    use ark_bls12_381::Bls12_381;
+    use poly_multiproof::{
+        msm::{blst::BlstMSMEngine, ArkMSMEngine},
+        traits::MSMEngine,
+    };
+
     use super::*;
 
     #[derive(Clone)]
     struct Inputs {
-        g1: G1Projective,
-        g2: G2Projective,
         g1aff: G1Affine,
         g2aff: G2Affine,
         h1aff: G1Affine,
@@ -23,16 +25,12 @@ mod pairing_benches {
 
         static ref INPUTS: Inputs = {
             let mut rng = rand::thread_rng();
-            let g1 = ark_bls12_381::G1Projective::rand(&mut rng);
-            let g2 = ark_bls12_381::G2Projective::rand(&mut rng);
+            let g1aff = ark_bls12_381::G1Affine::rand(&mut rng);
+            let g2aff = ark_bls12_381::G2Affine::rand(&mut rng);
             let z = Fr::rand(&mut rng);
-            let h1 = ark_bls12_381::G1Projective::rand(&mut rng) * (Fr::one() / z);
-            let h2 = ark_bls12_381::G2Projective::rand(&mut rng) * z;
-            let g1aff = g1.into_affine();
-            let g2aff = g2.into_affine();
-            let h1aff = h1.into_affine();
-            let h2aff = h2.into_affine();
-            Inputs { g1, g2, g1aff, g2aff, h1aff, h2aff }
+            let h1aff = ark_bls12_381::G1Affine::rand(&mut rng) * (Fr::one() / z);
+            let h2aff = ark_bls12_381::G2Affine::rand(&mut rng) * z;
+            Inputs { g1aff, g2aff, h1aff: h1aff.into(), h2aff: h2aff.into() }
         };
     }
 
@@ -40,31 +38,29 @@ mod pairing_benches {
     fn ark_pairing_bench(bencher: Bencher) {
         bencher
             .with_inputs(|| INPUTS.clone())
-            .bench_refs(|i| ark_bls12_381::Bls12_381::pairing(i.g1, i.g2));
+            .bench_refs(|i| <ArkMSMEngine<Bls12_381>>::pairing(i.g1aff, i.g2aff));
     }
 
     #[divan::bench]
     fn blst_pairing_bench(bencher: Bencher) {
         bencher
             .with_inputs(|| INPUTS.clone())
-            .bench_refs(|i| poly_multiproof::m1_blst::fast_msm::pairing(i.g1aff, i.g2aff))
+            .bench_refs(|i| BlstMSMEngine::pairing(i.g1aff, i.g2aff))
     }
 
     #[divan::bench]
     fn blst_slow_check(bencher: Bencher) {
         bencher.with_inputs(|| INPUTS.clone()).bench_refs(|i| {
-            let a1 = poly_multiproof::m1_blst::fast_msm::pairing(i.g1aff, i.g2aff);
-            let a2 = poly_multiproof::m1_blst::fast_msm::pairing(i.h1aff, i.h2aff);
+            let a1 = BlstMSMEngine::pairing(i.g1aff, i.g2aff);
+            let a2 = BlstMSMEngine::pairing(i.h1aff, i.h2aff);
             a1 == a2
         });
     }
     #[divan::bench]
     fn blst_fast_check(bencher: Bencher) {
-        bencher.with_inputs(|| INPUTS.clone()).bench_refs(|i| {
-            poly_multiproof::m1_blst::fast_msm::check_pairings_equal(
-                i.g1aff, i.g2aff, i.h1aff, i.h2aff,
-            )
-        });
+        bencher
+            .with_inputs(|| INPUTS.clone())
+            .bench_refs(|i| BlstMSMEngine::pairing_eq_check(i.g1aff, i.g2aff, i.h1aff, i.h2aff));
     }
 }
 
@@ -163,7 +159,7 @@ mod polydiv_benches {
         bencher
             .with_inputs(|| {
                 let ev = Radix2EvaluationDomain::<Fr>::new(256).unwrap();
-                let poly = DensePolynomial::<Fr>::rand(1024, &mut thread_rng());
+                let poly = DensePolynomial::<Fr>::rand(32768, &mut thread_rng());
                 (ev, poly)
             })
             .bench_values(|(ev, poly)| poly.divide_by_vanishing_poly(ev));
@@ -175,7 +171,7 @@ mod msm {
     use ark_bls12_381::{Fr, G1Affine};
     use ark_ff::UniformRand;
     use divan::Bencher;
-    use poly_multiproof::m1_blst::fast_msm;
+    use poly_multiproof::{msm::blst::BlstMSMEngine, traits::MSMEngine};
     use rand::thread_rng;
 
     fn inputs(to: usize) -> Vec<usize> {
@@ -189,15 +185,17 @@ mod msm {
         bencher
             .with_inputs(|| {
                 (
-                    (0..size)
-                        .map(|_| G1Affine::rand(&mut thread_rng()))
-                        .collect::<Vec<_>>(),
+                    BlstMSMEngine::prepare_g1(
+                        (0..size)
+                            .map(|_| G1Affine::rand(&mut thread_rng()))
+                            .collect::<Vec<_>>(),
+                    ),
                     (0..size)
                         .map(|_| Fr::rand(&mut thread_rng()))
                         .collect::<Vec<_>>(),
                 )
             })
-            .bench_values(|(g1s, frs)| fast_msm::P1Affines::from_affines(g1s).msm(&frs))
+            .bench_values(|(g1s, frs)| BlstMSMEngine::multi_scalar_mul_g1(&g1s, &frs));
     }
 }
 

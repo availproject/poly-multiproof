@@ -9,9 +9,6 @@ use ark_poly::{EvaluationDomain, GeneralEvaluationDomain, Radix2EvaluationDomain
 use ark_serialize::{CanonicalSerialize, Compress};
 use ark_std::{end_timer, start_timer};
 use merlin::Transcript;
-#[cfg(feature = "blst")]
-use poly_multiproof::m1_blst::{precompute::M1Precomp, M1NoPrecomp};
-#[cfg(not(feature = "blst"))]
 use poly_multiproof::method1::{precompute::M1Precomp, M1NoPrecomp};
 use poly_multiproof::{
     cfg_iter,
@@ -21,6 +18,11 @@ use poly_multiproof::{
 use rand::{thread_rng, RngCore};
 #[cfg(feature = "parallel")]
 use rayon::prelude::*;
+
+#[cfg(feature = "blst")]
+type MSMEngine = poly_multiproof::msm::blst::BlstMSMEngine;
+#[cfg(not(feature = "blst"))]
+type MSMEngine = poly_multiproof::msm::ArkMSMEngine<Bls12_381>;
 
 //******************************
 //* Play with these constants! *
@@ -145,7 +147,7 @@ fn main() {
     }
 
     let pmp_t = start_timer!(|| "create pmp");
-    let pmp = M1NoPrecomp::new(GRID_WIDTH, CHUNK_W, &mut thread_rng());
+    let pmp = <M1NoPrecomp<_, MSMEngine>>::new(GRID_WIDTH, CHUNK_W, &mut thread_rng());
     let pmp = M1Precomp::from_inner(pmp, point_sets).expect("Failed to make pmp");
     end_timer!(pmp_t);
 

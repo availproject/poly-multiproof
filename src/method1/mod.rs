@@ -3,7 +3,7 @@
 use crate::{
     check_opening_sizes, check_verify_sizes,
     lagrange::LagrangeInterpContext,
-    traits::{Committer, PolyMultiProofNoPrecomp},
+    traits::{Committer, MSMEngine, PolyMultiProofNoPrecomp},
 };
 use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
@@ -23,18 +23,25 @@ pub mod precompute;
 
 /// A method 1 proof scheme with no precomputation of lagrange polynomials
 #[derive(Clone, Debug)]
-pub struct M1NoPrecomp<E: Pairing> {
+pub struct M1NoPrecomp<E: Pairing, M: MSMEngine<E = E>> {
     /// The given powers tau in G1
     pub powers_of_g1: Vec<E::G1Affine>,
     /// The given powers tau in G2
     pub powers_of_g2: Vec<E::G2Affine>,
+
+    // These are the precomputed powers of the generators
+    // When using arkworks, these just duplicate the affine points above
+    pub(crate) g1_precomp: M::G1Prepared,
+    pub(crate) g2_precomp: M::G2Prepared,
+
+    _marker: std::marker::PhantomData<M>,
 }
 
 /// A method 1 proof
 #[derive(Debug, Clone, CanonicalSerialize, CanonicalDeserialize)]
 pub struct Proof<E: Pairing>(pub E::G1Affine);
 
-impl<E: Pairing> M1NoPrecomp<E> {
+impl<E: Pairing, M: MSMEngine<E = E>> M1NoPrecomp<E, M> {
     /// Make a new random scheme
     pub fn new(max_coeffs: usize, max_pts: usize, rng: &mut impl RngCore) -> Self {
         let x = E::ScalarField::rand(rng);
@@ -62,17 +69,20 @@ impl<E: Pairing> M1NoPrecomp<E> {
 
     /// Make a new scheme from the given projective powers
     pub fn new_from_powers(powers_of_g1: &[E::G1], powers_of_g2: &[E::G2]) -> Self {
-        Self {
-            powers_of_g1: powers_of_g1.iter().map(|s| s.into_affine()).collect(),
-            powers_of_g2: powers_of_g2.iter().map(|s| s.into_affine()).collect(),
-        }
+        Self::new_from_affine(
+            powers_of_g1.iter().map(|s| s.into_affine()).collect(),
+            powers_of_g2.iter().map(|s| s.into_affine()).collect(),
+        )
     }
 
     /// Make a new scheme from the given powers in affine form
     pub fn new_from_affine(powers_of_g1: Vec<E::G1Affine>, powers_of_g2: Vec<E::G2Affine>) -> Self {
         Self {
+            g1_precomp: M::prepare_g1(powers_of_g1.clone()),
+            g2_precomp: M::prepare_g2(powers_of_g2.clone()),
             powers_of_g1,
             powers_of_g2,
+            _marker: std::marker::PhantomData,
         }
     }
 
@@ -106,7 +116,7 @@ impl<E: Pairing> M1NoPrecomp<E> {
         )?;
         // Open to the resulting polynomial
         Ok(Proof(
-            super::curve_msm::<E::G1>(&self.powers_of_g1, &q)?.into_affine(),
+            M::multi_scalar_mul_g1(&self.g1_precomp, &q)?.into_affine(),
         ))
     }
 
@@ -131,26 +141,32 @@ impl<E: Pairing> M1NoPrecomp<E> {
         // Get the gamma^i r_i polynomials with lagrange interp. This does both the lagrange interp
         // and the gamma mul in one step so we can just lagrange interp once.
         let gamma_ris = lag_ctx.lagrange_interp_linear_combo(evals, &gammas)?.coeffs;
-        let gamma_ris_pt = super::curve_msm::<E::G1>(&self.powers_of_g1, gamma_ris.as_ref())?;
+        let gamma_ris_pt = M::multi_scalar_mul_g1(&self.g1_precomp, gamma_ris)?;
 
         // Then do a single msm of the gammas and commitments
         let cms = commits.iter().map(|i| i.0).collect::<Vec<_>>();
-        let gamma_cm_pt = super::curve_msm::<E::G1>(&cms, gammas.as_ref())?;
+        let cms_prep = M::prepare_g1(cms.clone());
+        let gamma_cm_pt = M::multi_scalar_mul_g1(&cms_prep, gammas)?;
 
         let g2 = self.powers_of_g2[0];
 
-        Ok(E::pairing(gamma_cm_pt - gamma_ris_pt, g2) == E::pairing(proof.0, g2_zeros))
+        Ok(M::pairing_eq_check(
+            (gamma_cm_pt - gamma_ris_pt).into(),
+            g2,
+            proof.0,
+            g2_zeros.into_affine(),
+        ))
     }
 }
 
-impl<E: Pairing> Committer<E> for M1NoPrecomp<E> {
+impl<E: Pairing, M: MSMEngine<E = E>> Committer<E> for M1NoPrecomp<E, M> {
     fn commit(&self, poly: impl AsRef<[E::ScalarField]>) -> Result<Commitment<E>, Error> {
-        let res = super::curve_msm::<E::G1>(&self.powers_of_g1, poly.as_ref())?;
+        let res = M::multi_scalar_mul_g1(&self.g1_precomp, poly.as_ref())?;
         Ok(Commitment(res.into_affine()))
     }
 }
 
-impl<E: Pairing> PolyMultiProofNoPrecomp<E> for M1NoPrecomp<E> {
+impl<E: Pairing, M: MSMEngine<E = E>> PolyMultiProofNoPrecomp<E> for M1NoPrecomp<E, M> {
     type Proof = Proof<E>;
 
     fn open(
@@ -173,7 +189,7 @@ impl<E: Pairing> PolyMultiProofNoPrecomp<E> for M1NoPrecomp<E> {
         proof: &Proof<E>,
     ) -> Result<bool, Error> {
         let vp = vanishing_polynomial(points);
-        let g2_zeros = super::curve_msm::<E::G2>(&self.powers_of_g2, &vp)?;
+        let g2_zeros = M::multi_scalar_mul_g2(&self.g2_precomp, &vp.coeffs)?;
         let lag_ctx = LagrangeInterpContext::new_from_points(points)?;
         self.verify_with_lag_ctx_g2_zeros(
             transcript, commits, points, evals, proof, &lag_ctx, &g2_zeros,
@@ -185,6 +201,7 @@ impl<E: Pairing> PolyMultiProofNoPrecomp<E> for M1NoPrecomp<E> {
 mod tests {
     use super::M1NoPrecomp;
     use crate::{
+        msm::{blst::BlstMSMEngine, ArkMSMEngine},
         test_rng,
         testing::{test_basic_no_precomp, test_size_errors},
     };
@@ -192,7 +209,11 @@ mod tests {
 
     #[test]
     fn test_basic_open_works() {
-        let s = M1NoPrecomp::<Bls12_381>::new(256, 30, &mut test_rng());
+        let s = M1NoPrecomp::<Bls12_381, ArkMSMEngine<Bls12_381>>::new(256, 30, &mut test_rng());
+        test_basic_no_precomp(&s);
+        test_size_errors(&s);
+
+        let s = M1NoPrecomp::<Bls12_381, BlstMSMEngine>::new(256, 30, &mut test_rng());
         test_basic_no_precomp(&s);
         test_size_errors(&s);
     }

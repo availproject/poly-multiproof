@@ -5,7 +5,11 @@ use ark_poly::{
 };
 use ark_std::log2;
 use merlin::Transcript;
-use poly_multiproof::m1_blst::cyclic_precomp::M1CyclPrecomp;
+use poly_multiproof::m1_cycl::M1CyclPrecomp;
+use poly_multiproof::method1::precompute::M1Precomp;
+use poly_multiproof::method1::M1NoPrecomp;
+use poly_multiproof::msm::blst::BlstMSMEngine;
+use poly_multiproof::msm::ArkMSMEngine;
 use poly_multiproof::traits::{Committer, PolyMultiProof};
 use poly_multiproof::{method1, method2, Commitment};
 use rand::thread_rng;
@@ -17,24 +21,23 @@ use std::{
     time::Instant,
 };
 
-type M1 = method1::M1NoPrecomp<Bls12_381>;
-type M1Pc = method1::precompute::M1Precomp<Bls12_381>;
+type M1 = M1NoPrecomp<Bls12_381, ArkMSMEngine<Bls12_381>>;
+type M1Pc = method1::precompute::M1Precomp<Bls12_381, ArkMSMEngine<Bls12_381>>;
 type M2 = method2::M2NoPrecomp<Bls12_381>;
 type M2Pc = method2::precompute::M2Precomp<Bls12_381>;
-type M1Blst = poly_multiproof::m1_blst::M1NoPrecomp;
-type M1BlstPc = poly_multiproof::m1_blst::precompute::M1Precomp;
-type M1BlstCyclPc = poly_multiproof::m1_blst::cyclic_precomp::M1CyclPrecomp;
+type M1Blst = M1NoPrecomp<Bls12_381, BlstMSMEngine>;
+type M1BlstPc = M1Precomp<Bls12_381, BlstMSMEngine>;
+type M1BlstCyclPc = M1CyclPrecomp<Bls12_381, BlstMSMEngine>;
 
 const WIDTH: usize = 32768; // 256 mb block
 const HEIGHT: usize = 64;
 // This won't let the block width go above 128
 const MIN_WIDTH: usize = 256;
-const MAX_WIDTH: usize = WIDTH;
+const MAX_WIDTH: usize = WIDTH / 2;
 #[derive(Clone)]
 struct TestGrid<F: Clone> {
     coeffs: Vec<Vec<F>>,
     evals: Vec<Vec<F>>,
-    points: Vec<F>,
 }
 
 impl<F: PrimeField> TestGrid<F> {
@@ -47,18 +50,7 @@ impl<F: PrimeField> TestGrid<F> {
             .map(|_| DensePolynomial::<F>::rand(degree, &mut thread_rng()).coeffs)
             .collect::<Vec<_>>();
         let evals: Vec<Vec<_>> = coeffs.iter().map(|p| ev.fft(&p)).collect();
-        Self {
-            coeffs,
-            points,
-            evals,
-        }
-    }
-    pub(crate) fn trim_pts(&self, n_pts: usize) -> Self {
-        Self {
-            coeffs: self.coeffs.clone(),
-            evals: self.evals.iter().map(|ev| ev[..n_pts].to_vec()).collect(),
-            points: self.points[..n_pts].to_vec(),
-        }
+        Self { coeffs, evals }
     }
 }
 
@@ -76,7 +68,7 @@ lazy_static::lazy_static! {
     };
 
     static ref M1BLST_PMP: M1Blst = {
-        M1Blst::new_from_affine(&M1_PMP.powers_of_g1, &M1_PMP.powers_of_g2)
+        M1Blst::new_from_affine(M1_PMP.powers_of_g1.clone(), M1_PMP.powers_of_g2.clone())
     };
 
     static ref COMMITS: Vec<Commitment<Bls12_381>> = {
@@ -240,13 +232,15 @@ fn input_args() -> Vec<Box<dyn Arg>> {
             let m1blst_cycl_pc = Arc::new(
                 M1CyclPrecomp::from_inner(M1BLST_PMP.clone(), WIDTH, WIDTH / width).unwrap(),
             );
-            let cycl_eval_selector =
-                |pmp: &M1CyclPrecomp, grid: &TestGrid<Fr>, _width: usize, height: usize| {
-                    grid.evals[..height]
-                        .iter()
-                        .map(|ev| pmp.point_sets().take_subgroup_indices(0, ev).unwrap())
-                        .collect()
-                };
+            let cycl_eval_selector = |pmp: &M1CyclPrecomp<Bls12_381, BlstMSMEngine>,
+                                      grid: &TestGrid<Fr>,
+                                      _width: usize,
+                                      height: usize| {
+                grid.evals[..height]
+                    .iter()
+                    .map(|ev| pmp.point_sets().take_subgroup_indices(0, ev).unwrap())
+                    .collect()
+            };
             println!("Width {} pc took {:#?}", width, start.elapsed());
             heights
                 .par_iter()

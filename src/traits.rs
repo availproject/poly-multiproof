@@ -1,5 +1,5 @@
 //! Traits used in the BDFG21 and KZG Schemes
-use ark_ec::pairing::Pairing;
+use ark_ec::pairing::{Pairing, PairingOutput};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_std::vec::Vec;
 use merlin::Transcript;
@@ -30,7 +30,7 @@ pub trait KZGProof<E: Pairing>: Sized {
     fn open(&self, witness_poly: Vec<E::ScalarField>) -> Result<Self::Proof, Error>;
 
     /// Verifies a proof against a commitment
-    fn verify(
+    fn verify<M: MSMEngine<E = E>>(
         &self,
         commit: &crate::Commitment<E>,
         point: E::ScalarField,
@@ -87,6 +87,48 @@ pub trait PolyMultiProofNoPrecomp<E: Pairing>: Sized {
         evals: &[impl AsRef<[E::ScalarField]>],
         proof: &Self::Proof,
     ) -> Result<bool, Error>;
+}
+
+/// A curve-agnostic trait for fast multi-scalar multiplication
+pub trait MSMEngine: Clone + Copy {
+    /// The curve type implemented
+    type E: Pairing;
+    /// The prepared G1 Scalars
+    type G1Prepared: Clone;
+    /// The prepared G2 Scalars
+    type G2Prepared: Clone;
+
+    /// Prepare the given points for multi-scalar multiplication
+    fn prepare_g1(g: Vec<<Self::E as Pairing>::G1Affine>) -> Self::G1Prepared;
+
+    /// Prepare the given points for multi-scalar multiplication
+    fn prepare_g2(g: Vec<<Self::E as Pairing>::G2Affine>) -> Self::G2Prepared;
+
+    /// Perform a multi-scalar multiplication on the given G1 elements
+    fn multi_scalar_mul_g1(
+        g: &Self::G1Prepared,
+        s: impl AsRef<[<Self::E as Pairing>::ScalarField]>,
+    ) -> Result<<Self::E as Pairing>::G1, Error>;
+
+    /// Perform a multi-scalar multiplication on the given G1 elements
+    fn multi_scalar_mul_g2(
+        g: &Self::G2Prepared,
+        s: impl AsRef<[<Self::E as Pairing>::ScalarField]>,
+    ) -> Result<<Self::E as Pairing>::G2, Error>;
+
+    /// Checks that e(p1, q1) == e(p2, q2)
+    fn pairing_eq_check(
+        p1: <Self::E as Pairing>::G1Affine,
+        q1: <Self::E as Pairing>::G2Affine,
+        p2: <Self::E as Pairing>::G1Affine,
+        q2: <Self::E as Pairing>::G2Affine,
+    ) -> bool;
+
+    /// Computes e(p1, q1)
+    fn pairing(
+        p1: <Self::E as Pairing>::G1Affine,
+        q1: <Self::E as Pairing>::G2Affine,
+    ) -> PairingOutput<Self::E>;
 }
 
 /// Utility trait for serialization and deserialization
