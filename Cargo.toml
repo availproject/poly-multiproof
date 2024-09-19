@@ -17,7 +17,8 @@ merlin = { version = "3", default-features = false }
 thiserror = { version = "1.0.37", optional = true }
 rayon = { version = "1.6", optional = true }
 
-blst = { optional = true, features = [ "no-threads"], git = "https://github.com/availproject/blst", tag = "v0.3.10" }
+blst = { optional = true, features = [ "no-threads"], git = "https://github.com/ToufeeqP/blst", rev = "afdb0a4b7d98d4ff22c3a1d35faca223cde0ef3a" }
+
 ark-bls12-381 = { version = "0.4.0-alpha.2", optional = true }
 
 [dev-dependencies]
