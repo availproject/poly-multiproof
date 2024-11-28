@@ -29,15 +29,16 @@ type M1Blst = M1NoPrecomp<Bls12_381, BlstMSMEngine>;
 type M1BlstPc = M1Precomp<Bls12_381, BlstMSMEngine>;
 type M1BlstCyclPc = M1CyclPrecomp<Bls12_381, BlstMSMEngine>;
 
-const WIDTH: usize = 32768; // 256 mb block
+const WIDTH: usize = 1024; // 256 mb block
 const HEIGHT: usize = 64;
 // This won't let the block width go above 128
-const MIN_WIDTH: usize = 256;
+const MIN_WIDTH: usize = 1;
 const MAX_WIDTH: usize = WIDTH / 2;
 #[derive(Clone)]
 struct TestGrid<F: Clone> {
     coeffs: Vec<Vec<F>>,
     evals: Vec<Vec<F>>,
+    points: Vec<F>,
 }
 
 impl<F: PrimeField> TestGrid<F> {
@@ -50,7 +51,11 @@ impl<F: PrimeField> TestGrid<F> {
             .map(|_| DensePolynomial::<F>::rand(degree, &mut thread_rng()).coeffs)
             .collect::<Vec<_>>();
         let evals: Vec<Vec<_>> = coeffs.iter().map(|p| ev.fft(&p)).collect();
-        Self { coeffs, evals }
+        Self {
+            points,
+            coeffs,
+            evals,
+        }
     }
 }
 
@@ -209,6 +214,30 @@ fn powers_of_two_up_to(from: usize, to: usize) -> Vec<usize> {
         .collect()
 }
 
+fn basic_eval_selector<A>(
+    _pmp: &A,
+    grid: &TestGrid<Fr>,
+    width: usize,
+    height: usize,
+) -> Vec<Vec<Fr>> {
+    grid.evals[..height]
+        .iter()
+        .map(|ev| ev[..width].to_vec())
+        .collect::<Vec<_>>()
+}
+
+fn cycl_eval_selector(
+    pmp: &M1CyclPrecomp<Bls12_381, BlstMSMEngine>,
+    grid: &TestGrid<Fr>,
+    _width: usize,
+    height: usize,
+) -> Vec<Vec<Fr>> {
+    grid.evals[..height]
+        .iter()
+        .map(|ev| pmp.point_sets().take_subgroup_indices(0, ev).unwrap())
+        .collect()
+}
+
 fn input_args() -> Vec<Box<dyn Arg>> {
     println!("Performing Setup");
     let start = Instant::now();
@@ -219,9 +248,9 @@ fn input_args() -> Vec<Box<dyn Arg>> {
         .par_iter()
         .flat_map(|&width| {
             let start = Instant::now();
-            //let subgrid = TEST_GRID.trim_pts(width);
-            //let point_sets = vec![TEST_GRID.points[..width].to_vec()];
-            //let m1blst_pc = M1BlstPc::from_inner(M1BLST_PMP.clone(), point_sets.clone()).unwrap();
+            let point_sets = vec![TEST_GRID.points[..width].to_vec()];
+            let m1blst_pc =
+                Arc::new(M1BlstPc::from_inner(M1BLST_PMP.clone(), point_sets.clone()).unwrap());
             let _basic_eval_selector = |grid: &TestGrid<Fr>, width: usize, height: usize| {
                 grid.evals[..height]
                     .iter()
@@ -232,27 +261,25 @@ fn input_args() -> Vec<Box<dyn Arg>> {
             let m1blst_cycl_pc = Arc::new(
                 M1CyclPrecomp::from_inner(M1BLST_PMP.clone(), WIDTH, WIDTH / width).unwrap(),
             );
-            let cycl_eval_selector = |pmp: &M1CyclPrecomp<Bls12_381, BlstMSMEngine>,
-                                      grid: &TestGrid<Fr>,
-                                      _width: usize,
-                                      height: usize| {
-                grid.evals[..height]
-                    .iter()
-                    .map(|ev| pmp.point_sets().take_subgroup_indices(0, ev).unwrap())
-                    .collect()
-            };
             println!("Width {} pc took {:#?}", width, start.elapsed());
             heights
                 .par_iter()
                 .flat_map(|&height| -> Vec<Box<dyn Arg>> {
                     vec![
-                        //Box::new(PmpCase {
-                        //    width,
-                        //    height,
-                        //    opening: open_with_pmp(&m1blst_pc, &subgrid, height),
-                        //    backend: m1blst_pc.clone(),
-                        //    grid: subgrid.clone(),
-                        //}),
+                        Box::new(PmpCase {
+                            width,
+                            height,
+                            opening: open_with_pmp(
+                                m1blst_pc.as_ref(),
+                                &TEST_GRID,
+                                width,
+                                height,
+                                basic_eval_selector,
+                            ),
+                            backend: m1blst_pc.clone(),
+                            grid: &TEST_GRID,
+                            eval_selector: basic_eval_selector,
+                        }),
                         Box::new(PmpCase {
                             width,
                             height,
