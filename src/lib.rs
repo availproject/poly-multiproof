@@ -58,7 +58,7 @@
 //! The logs in `bench_out.txt` can then be parsed and plotted in `Plot Benches.ipynb`.
 //! Using `--quick` is nice since there are many many inputs benchmarked and it will still take an hour or so to run with `--quick`.
 //!
-use ark_ec::{pairing::Pairing, scalar_mul::fixed_base::FixedBase, CurveGroup, ScalarMul};
+use ark_ec::{scalar_mul::fixed_base::FixedBase, CurveGroup, ScalarMul};
 use ark_ff::{Field, PrimeField};
 use ark_poly::{
     univariate::{DenseOrSparsePolynomial, DensePolynomial},
@@ -74,6 +74,7 @@ use rand::thread_rng as test_rng;
 pub use ark_ff;
 pub use ark_poly;
 pub use ark_serialize;
+pub use ark_ec::pairing::Pairing;
 pub use merlin;
 
 pub mod m1_cycl;
@@ -163,6 +164,28 @@ pub enum Error {
     /// Failed to construct a domain of the given size
     #[cfg_attr(feature = "std", error("Unable to construct a domain of size {0}"))]
     DomainConstructionFailed(usize),
+    /// Subgroup index was invalid
+    #[cfg_attr(
+        feature = "std",
+        error("Invalid subgroup index {idx} for {n_splits} splits")
+    )]
+    InvalidSubgroupIndex {
+        /// Index
+        idx: usize,
+        /// Number of splits
+        n_splits: usize,
+    },
+    /// Invalid input length
+    #[cfg_attr(
+        feature = "std",
+        error("Invalid input length: {got}, expected {expected}")
+    )]
+    InvalidInputLength {
+        /// Expected length
+        expected: usize,
+        /// Actual length
+        got: usize,
+    },
 }
 
 impl From<SerializationError> for Error {

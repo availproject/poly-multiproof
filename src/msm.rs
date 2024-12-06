@@ -1,7 +1,7 @@
 //! Multi-scalar multiplication engines
-use std::marker::PhantomData;
 
 use ark_ec::pairing::{Pairing, PairingOutput};
+use ark_std::{marker::PhantomData, vec::Vec};
 
 use crate::{traits::MSMEngine, Error};
 
@@ -347,6 +347,7 @@ pub mod blst {
     }
 
     fn prep_scalars(scalars: &[ark_bls12_381::Fr]) -> Vec<u8> {
+        use ark_std::vec;
         let mut scalars_le = vec![0u8; 32 * scalars.len()];
         for (i, s) in scalars.iter().enumerate() {
             // This _must_ be little endian bytes for this to work

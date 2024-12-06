@@ -1,6 +1,6 @@
 //! Polynomial operations and utilities
 //! Don't use these unless you're sure you have to
-use crate::utils::smallest_power_of_2_greater_than;
+use crate::{utils::smallest_power_of_2_greater_than, Error};
 use ark_ff::{FftField, Field};
 use ark_poly::{
     univariate::DensePolynomial, DenseUVPolynomial, EvaluationDomain, Polynomial,
@@ -10,6 +10,7 @@ use core::{
     iter::StepBy,
     ops::{Mul, Range},
 };
+use ark_std::{vec::Vec, result::Result, vec};
 
 fn poly<F: Field>(p: Vec<F>) -> DensePolynomial<F> {
     DensePolynomial::from_coefficients_vec(p)
@@ -135,21 +136,15 @@ impl<F: FftField> SplitEvalDomain<F> {
         &self,
         idx: usize,
         items: T,
-    ) -> Option<Vec<K>> {
+    ) -> Result<Vec<K>, Error> {
         if idx >= self.n_splits {
-            dbg!("idx >= n_splits", idx, self.n_splits);
-            return None;
+            return Err(Error::InvalidSubgroupIndex{idx, n_splits: self.n_splits});
         }
         if items.as_ref().len() != self.base_size {
-            dbg!(
-                "items.len() != base_size",
-                items.as_ref().len(),
-                self.base_size
-            );
-            return None;
+            return Err(Error::InvalidInputLength{expected: self.base_size, got: items.as_ref().len()});
         }
         let items = items.as_ref();
-        Some(
+        Ok(
             self.subgroup_indices(idx)
                 .map(|i| items[i].clone())
                 .collect(),

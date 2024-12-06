@@ -7,11 +7,10 @@ use crate::{
 };
 use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_std::{vec::Vec, UniformRand};
+use ark_std::{rand::RngCore, vec::Vec, UniformRand, marker::PhantomData};
 use merlin::Transcript;
 
 use ark_ec::{pairing::Pairing, CurveGroup};
-use ark_std::rand::RngCore;
 
 use crate::{get_challenge, get_field_size, transcribe_points_and_evals, Commitment};
 
@@ -34,7 +33,7 @@ pub struct M1NoPrecomp<E: Pairing, M: MSMEngine<E = E>> {
     pub(crate) g1_precomp: M::G1Prepared,
     pub(crate) g2_precomp: M::G2Prepared,
 
-    _marker: std::marker::PhantomData<M>,
+    _marker: PhantomData<M>,
 }
 
 /// A method 1 proof
@@ -82,7 +81,7 @@ impl<E: Pairing, M: MSMEngine<E = E>> M1NoPrecomp<E, M> {
             g2_precomp: M::prepare_g2(powers_of_g2.clone()),
             powers_of_g1,
             powers_of_g2,
-            _marker: std::marker::PhantomData,
+            _marker: PhantomData,
         }
     }
 
