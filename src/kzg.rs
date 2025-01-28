@@ -11,8 +11,8 @@ use crate::{
     traits::{Committer, KZGProof, MSMEngine},
     Error,
 };
-use ark_std::vec::Vec;
 use ark_std::vec;
+use ark_std::vec::Vec;
 
 impl<E: Pairing, A: Committer<E> + WithSrs<E>> KZGProof<E> for A {
     type Proof = crate::method1::Proof<E>;

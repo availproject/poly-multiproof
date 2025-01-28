@@ -7,7 +7,7 @@ use crate::{
 };
 use ark_poly::{univariate::DensePolynomial, DenseUVPolynomial};
 use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
-use ark_std::{rand::RngCore, vec::Vec, UniformRand, marker::PhantomData};
+use ark_std::{marker::PhantomData, rand::RngCore, vec::Vec, UniformRand};
 use merlin::Transcript;
 
 use ark_ec::{pairing::Pairing, CurveGroup};

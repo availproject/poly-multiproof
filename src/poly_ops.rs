@@ -6,11 +6,11 @@ use ark_poly::{
     univariate::DensePolynomial, DenseUVPolynomial, EvaluationDomain, Polynomial,
     Radix2EvaluationDomain,
 };
+use ark_std::{result::Result, vec, vec::Vec};
 use core::{
     iter::StepBy,
     ops::{Mul, Range},
 };
-use ark_std::{vec::Vec, result::Result, vec};
 
 fn poly<F: Field>(p: Vec<F>) -> DensePolynomial<F> {
     DensePolynomial::from_coefficients_vec(p)
@@ -138,17 +138,22 @@ impl<F: FftField> SplitEvalDomain<F> {
         items: T,
     ) -> Result<Vec<K>, Error> {
         if idx >= self.n_splits {
-            return Err(Error::InvalidSubgroupIndex{idx, n_splits: self.n_splits});
+            return Err(Error::InvalidSubgroupIndex {
+                idx,
+                n_splits: self.n_splits,
+            });
         }
         if items.as_ref().len() != self.base_size {
-            return Err(Error::InvalidInputLength{expected: self.base_size, got: items.as_ref().len()});
+            return Err(Error::InvalidInputLength {
+                expected: self.base_size,
+                got: items.as_ref().len(),
+            });
         }
         let items = items.as_ref();
-        Ok(
-            self.subgroup_indices(idx)
-                .map(|i| items[i].clone())
-                .collect(),
-        )
+        Ok(self
+            .subgroup_indices(idx)
+            .map(|i| items[i].clone())
+            .collect())
     }
 }
 

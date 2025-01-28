@@ -71,10 +71,10 @@ use merlin::Transcript;
 use rand::thread_rng as test_rng;
 
 // Public uses
+pub use ark_ec::pairing::Pairing;
 pub use ark_ff;
 pub use ark_poly;
 pub use ark_serialize;
-pub use ark_ec::pairing::Pairing;
 pub use merlin;
 
 pub mod m1_cycl;
