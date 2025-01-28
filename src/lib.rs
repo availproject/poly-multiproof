@@ -95,6 +95,9 @@ pub mod msm;
 #[cfg(test)]
 pub mod testing;
 
+#[cfg(feature = "ark-bls12-381")]
+pub use ark_bls12_381;
+
 /// Crate error type
 #[derive(Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "std", derive(thiserror::Error))]
